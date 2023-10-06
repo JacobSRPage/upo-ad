@@ -26,7 +26,7 @@ grid = cfd.grids.Grid((Nx, Ny), domain=((0, Lx), (0, Ly)))
 flow_setup = search_config.KolFlowSimulationConfig(Re, grid)
 
 # configure specific search
-energy_fn = partial(dg.compute_energy_snapshot(grid=grid, Re=Re, n_kol_waves=4))
+energy_fn = partial(dg.compute_energy_snapshot, grid=grid, Re=Re, n_kol_waves=4)
 opt_setup = search_config.TargetedSearchConfig(flow_setup, 
                                                T_guess,
                                                n_opt_steps, 

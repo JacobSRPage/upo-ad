@@ -56,7 +56,7 @@ def loss_fn_diffrax_target_obs(
   u_T = state_T.v_new
   shifted_uT = glue.x_shift_field(u_T, x_shift)
   loss = jnp.linalg.norm(glue.state_vector(shifted_uT) - glue.state_vector(u0), ord=2) / jnp.linalg.norm(glue.state_vector(u0), ord=2) + \
-        1. * jax.nn.sigmoid(100 * (obs_target - state_T.avg_observable)) #- (state.avg_observable - obs_target) ** 2
+        100. * jax.nn.sigmoid(100 * (obs_target - state_T.avg_observable)) #- (state.avg_observable - obs_target) ** 2
   return loss
 
 def loss_fn_diffrax_targetT(
