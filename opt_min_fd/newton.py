@@ -1,7 +1,6 @@
 # TODO clean up inheritance; iterate method in particular
 # or iterate changes just based on definition of poGuess 
-import typing
-from typing import Callable, Tuple, List, Union
+from typing import Tuple, List, Union
 
 import jax
 import jax.numpy as jnp

@@ -5,16 +5,13 @@ import jax.numpy as jnp
 import jax.example_libraries.optimizers as optimizers
 
 import numpy as np
-import pickle
-
 import jax_cfd.base as cfd 
 import time_forward_map as tfm
 import interact_jaxcfd_dtypes as glue
 import loss_functions as lf
 import optimisation as op
-import newton as nt
 
-from typing import Tuple
+from typing import Tuple, Callable
 
 class KolFlowSimulationConfig:
   def __init__(self, Re: float, grid: cfd.grids.Grid, T_burn: float=50.):
@@ -115,18 +112,6 @@ class PeriodicSearchConfig:
     shift_newton = u_T_shift[-1]
     u0_newton = glue.jnp_to_gv_tuple(u_T_shift[:-2].reshape(initial_shape), offsets, self.flow.grid, bc)
     return u0_newton, T_newton, shift_newton, performance[0][-1]
-  
-  def write_out_guesses(self):
-    file_name = ('guesses_with_damp_Re' + str(self.flow.Re) + 
-                 '_T' + str(self.T_guess) + 
-                 '_Nopt' + str(self.N_opt) + 
-                 '_Noptdamp' + str(self.N_opt_damp) +
-                 '_thresh' + str(self.thresh) + 
-                 '_file' + str(self.n_files) + '.obj')
-    self.n_files += 1
-    with open(file_name, 'wb') as f:
-      pickle.dump(self.good_guesses, f)
-    self.good_guesses = {}
 
   def loop_opt(self, n_guess_max=None):
     n_guess = 0
@@ -155,6 +140,71 @@ class PeriodicSearchConfig:
           write_guess_and_metadata(u, T, shift_update, loss, file_front)
       n_guess += 1
 
+class TargetedSearchConfig(PeriodicSearchConfig):
+  """ Time-average observable above some threshold """
+  def __init__(self, 
+               flow_config: KolFlowSimulationConfig,
+               T_guess: float,
+               N_opt: int,
+               N_opt_damp: int,
+               loss_thresh: float,
+               observable_fn: Callable[[Tuple[cfd.grids.GridVariable]], float]=lambda x: 0.,
+               observable_thresh: float=0.
+               ):
+    self.flow = flow_config
+    self.T_guess = T_guess 
+    self.N_opt = N_opt
+    self.N_opt_damp = N_opt_damp
+    self.thresh = loss_thresh
+    self.learning_rate = 0.35
+    self.learning_rate_damp_v = 0.1
+    self.observable_fn = observable_fn
+    self.observable_thresh = observable_thresh
+
+    advance_velocity_fn = tfm.advance_velocity_module(self.flow.step_fn,
+                                                      self.flow.dt_stable,
+                                                      self.observable_fn,
+                                                      max_steps=2 * int(self.T_guess / 
+                                                                        self.flow.dt_stable))
+    self.loss_fn = partial(
+      lf.loss_fn_diffrax_target_obs, 
+      forward_map=advance_velocity_fn,
+      obs_target=self.observable_thresh
+      )
+    
+    self.grad_u_T_shift = partial(glue.grad_u_with_extras_vec, loss_fn=self.loss_fn)
+    self.optimiser_triple = optimizers.adagrad(self.learning_rate)
+
+    self.loss_fn_damp_v = partial(lf.loss_fn_diffrax_nomean, forward_map=advance_velocity_fn)
+    self.grad_u_T_shift_damp_v = partial(glue.grad_u_with_extras_vec, loss_fn=self.loss_fn_damp_v)
+    self.optimiser_triple_damp_v = optimizers.adagrad(self.learning_rate_damp_v)
+
+    self.good_guesses = {}
+    self.n_files = 0 # number of files written 
+
+  def initial_search(self):
+    # ensure initial snapshot is in region of interest
+    observed_quantity = 0.
+    while observed_quantity < self.observable_thresh:
+      v_initial = self.flow.generate_random_ic()
+      observed_quantity = self.observable_fn(v_initial)
+
+    initial_ar, offsets = glue.gv_tuple_to_jnp(v_initial)
+    initial_shape = initial_ar.shape
+    bc = v_initial[0].bc
+
+    performance, u_T_shift = op.iterate_optimizer_for_rpo(self.optimiser_triple, 
+                                                          v_initial, self.flow.grid, 
+                                                          self.loss_fn, self.grad_u_T_shift, 
+                                                          self.T_guess, 0., self.N_opt)
+
+
+    T_out = u_T_shift[-2]
+    shift_out = u_T_shift[-1]
+    u0_out = glue.jnp_to_gv_tuple(u_T_shift[:-2].reshape(initial_shape), offsets, self.flow.grid, bc)
+    return u0_out, T_out, shift_out, performance[0][-1]
+
+
 def write_guess_and_metadata(u: Tuple[cfd.grids.GridVariable], 
                              T: float, shift: float, loss: float,
                              file_front: str):
@@ -162,5 +212,3 @@ def write_guess_and_metadata(u: Tuple[cfd.grids.GridVariable],
   u_ar, _ = glue.gv_tuple_to_jnp(u)
   np.save(file_front + '_meta.npy', meta_data)
   np.save(file_front + '_array.npy', u_ar)
-
-# def generate_newton_initial_condition()

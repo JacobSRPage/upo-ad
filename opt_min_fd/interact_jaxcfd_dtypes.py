@@ -1,5 +1,4 @@
 """ Routines to interact with jax-cfd [more] """
-import typing
 from typing import Callable, Tuple, List, Union
 
 import jax

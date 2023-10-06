@@ -6,7 +6,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg as la
-# import diffrax
 import equinox
 
 from collections import namedtuple
@@ -23,7 +22,7 @@ def advance_velocity_module(step_fun, dt, obs_fn, max_steps=None):
     """When this returns true, continue time stepping `state`."""
     return dt * state.steps < state.T
 
-  def body_fun(state): #ß, _):
+  def body_fun(state): 
     """Increment `state` by one time step."""
     v_update = step_fun(state.v_new)
     observable = obs_fn(v_update)

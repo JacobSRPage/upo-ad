@@ -1,5 +1,4 @@
 """ Loss functions for searching for periodic orbits with jax-cfd """ 
-import typing
 from typing import Callable, Tuple, List, Union
 
 import jax
