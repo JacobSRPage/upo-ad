@@ -9,18 +9,18 @@ import search_config
 import diagnostics as dg
 
 # KF config
-T_guess = 5.
-Re = 40. 
-Nx = 128
-Ny = 128
+T_guess = 5.5
+Re = 40.
+Nx = 256
+Ny = 256
 Lx = 2 * jnp.pi
 Ly = 2 * jnp.pi
 energy_threshold = 0.45
 
 # optimiser config
-n_opt_steps = 20
-n_damp_steps = 10
-loss_thresh = 2. # when to save a guess for Newton
+n_opt_steps = 250
+n_damp_steps = 100
+loss_thresh = 0.5 # when to save a guess for Newton
 
 grid = cfd.grids.Grid((Nx, Ny), domain=((0, Lx), (0, Ly)))
 flow_setup = search_config.KolFlowSimulationConfig(Re, grid)

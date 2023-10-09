@@ -12,20 +12,17 @@ import time_forward_map as tfm
 import newton as nt
 import interact_jaxcfd_dtypes as glue
 
-guess_files= ['guesses_Jun5/run0/guesses_with_damp_Re100_T2.5_Nopt250_Noptdamp100_thresh0.02_file' + 
-              str(j) + '.obj' for j in range(4)]
-guess_files += ['guesses_Jun5/run1/guesses_with_damp_Re100_T2.75_Nopt275_Noptdamp125_thresh0.02_file' + 
-                str(j) + '.obj' for j in range(8)]
-guess_files += ['guesses_Jun5/run1/guesses_with_damp_Re100_T3.25_Nopt325_Noptdamp150_thresh0.02_file' +
-                str(j) + '.obj' for j in range(3)]
-
-success_file_name = 'converged_Jun5_Re100.obj'
+file_front = 'guesses_Re40/guesses_with_damp_Re40.0_T4.0_Nopt400_Noptdamp100_thresh0.05_file'
+N_files = 10
+array_files = [file_front + str(j) + '_array.npy' for j in range(N_files)]
+meta_files = [file_front + str(j) + '_meta.npy' for j in range(N_files)]
 
 # DNS configuration should match guesses! 
 Nx = 512
 Ny = 512
 Lx = 2 * jnp.pi
 Ly = 2 * jnp.pi
+add_mean_flow = True # set to True if mean flow (in x) was subtracted when estimating shift
 
 Re = 100.
 grid = cfd.grids.Grid((Nx, Ny), domain=((0, Lx), (0, Ly)))
@@ -35,21 +32,33 @@ dt_stable = cfd.equations.stable_time_step(max_velocity, 0.5, 1./Re, grid) / 2. 
 
 newton_solver = nt.rpoSolver(dt_stable, grid, Re, nmax_newt=30, nmax_gm=50, nmax_hook=8)
 
-successes = {}
-count = 0
-for guess_file_name in guess_files:
-  guess_file = open(guess_file_name, 'rb') 
-  guesses = pickle.load(guess_file)
-  guess_file.close()
+# configure variables for setting up GridVariable 
+offsets = [(1., 0.5), (0.5, 1.)]
+bc = cfd.boundaries.HomogeneousBoundaryConditions(types=(('periodic', 'periodic'), ('periodic', 'periodic')))
 
-  for guess_num in guesses:
-    guess = guesses[guess_num]
+count = 0
+for ar_file, meta_file in zip(array_files, meta_files):
+  # construct GridVariable from input arrays
+  guess_ar = np.load(ar_file)
+  meta_ar = np.load(meta_file)
+  T = meta_ar[0]
+  shift = meta_ar[1]
+  u_guess_gv = glue.jnp_to_gv_tuple(guess_ar, offsets, grid, bc) 
+  guess = nt.poGuess(u_guess_gv, T, shift)
+    
+  # compute mean flow
+  if add_mean_flow: 
     um, vm = glue.mean_flows(guess.u_init)
     guess.shift_init += um * guess.T_init # assume we have subtracted off in the generation
-    newt_result = newton_solver.iterate(guess)
-    if newt_result.newt_resi_history[-1] < newton_solver.eps_newt:
-      successes[count] = newt_result
+  newt_result = newton_solver.iterate(guess)
+  if newt_result.newt_resi_history[-1] < newton_solver.eps_newt:
+    ar_success, _ = glue.gv_tuple_to_jnp(guess.u_out)
+    T_success = guess.T_out
+    shift_success = guess.shift_out
+    final_loss = guess.newt_resi_history[-1]
+    try:
+      np.save('success_' + str(count) + '_spec_array.npy', ar_success)
+      np.save('success_' + str(count) + '_spec_meta.npy', np.array([T_success, shift_success, final_loss]))
       count += 1
-    
-    with open(success_file_name, 'wb') as f:
-      pickle.dump(successes, f)
+    except:
+      print("Erroneous convergence. Moving on.")

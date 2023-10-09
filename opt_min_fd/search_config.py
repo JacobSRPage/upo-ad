@@ -79,9 +79,6 @@ class PeriodicSearchConfig:
     self.grad_u_T_shift_damp_v = partial(glue.grad_u_with_extras_vec, loss_fn=self.loss_fn_damp_v)
     self.optimiser_triple_damp_v = optimizers.adagrad(self.learning_rate_damp_v)
 
-    self.good_guesses = {}
-    self.n_files = 0 # number of files written 
-
   def initial_search(self):
     v_initial = self.flow.generate_random_ic()
     initial_ar, offsets = glue.gv_tuple_to_jnp(v_initial)
@@ -178,9 +175,6 @@ class TargetedSearchConfig(PeriodicSearchConfig):
     self.loss_fn_damp_v = partial(lf.loss_fn_diffrax_nomean, forward_map=advance_velocity_fn)
     self.grad_u_T_shift_damp_v = partial(glue.grad_u_with_extras_vec, loss_fn=self.loss_fn_damp_v)
     self.optimiser_triple_damp_v = optimizers.adagrad(self.learning_rate_damp_v)
-
-    self.good_guesses = {}
-    self.n_files = 0 # number of files written 
 
   def initial_search(self):
     # ensure initial snapshot is in region of interest
