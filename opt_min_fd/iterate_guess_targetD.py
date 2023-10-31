@@ -16,8 +16,8 @@ Ny = 256
 Lx = 2 * jnp.pi
 Ly = 2 * jnp.pi
 
-energy_threshold = 0.45
-greater_than = 1
+diss_threshold = 0.1
+greater_than = 0
 
 # optimiser config
 n_opt_steps = 250
@@ -28,14 +28,14 @@ grid = cfd.grids.Grid((Nx, Ny), domain=((0, Lx), (0, Ly)))
 flow_setup = search_config.KolFlowSimulationConfig(Re, grid)
 
 # configure specific search
-energy_fn = partial(dg.compute_energy_snapshot, grid=grid, Re=Re, n_kol_waves=4)
+diss_fn = partial(dg.compute_diss_snapshot, grid=grid, Re=Re, n_kol_waves=4)
 opt_setup = search_config.TargetedSearchConfig(flow_setup, 
                                                T_guess,
                                                n_opt_steps, 
                                                n_damp_steps,
                                                loss_thresh,
-                                               observable_fn=energy_fn,
-                                               observable_thresh=energy_threshold,
+                                               observable_fn=diss_fn,
+                                               observable_thresh=diss_threshold,
                                                greater_than_target=greater_than
                                                )
 

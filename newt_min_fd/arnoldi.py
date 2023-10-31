@@ -1,21 +1,21 @@
 import numpy as np 
 import scipy.linalg as la
-from typing import Callable, Tuple
+import typing
+from typing import Callable, Tuple, List, Union
 Array = np.ndarray
 
 class krylovBasis:
   def __init__(
       self, 
       rhs_vec: Array, 
-      max_size: int,
-      data_type: str='float64'
+      max_size: int
   ):
     self.rhs_vec = rhs_vec
     self.N = self.rhs_vec.size 
     self.max_size = max_size
 
-    self.basis = np.empty((self.N, self.max_size), dtype=data_type)
-    self.hessenberg = np.zeros((self.max_size, self.max_size), dtype=data_type)
+    self.basis = np.empty((self.N, self.max_size))
+    self.hessenberg = np.zeros((self.max_size, self.max_size))
 
     self.n_basis_vec = 0
 
@@ -29,7 +29,7 @@ class krylovBasis:
 
     v = A_operator(self.basis[:, self.n_basis_vec])
     for j in range(self.n_basis_vec + 1):
-      self.hessenberg[j, self.n_basis_vec] = np.dot(v.conj(), self.basis[:,j]) # 
+      self.hessenberg[j, self.n_basis_vec] = np.dot(v, self.basis[:,j]) # 
       v -= self.hessenberg[j, self.n_basis_vec] * self.basis[:,j]
     self.hessenberg[self.n_basis_vec+1, self.n_basis_vec] = la.norm(v)
 
@@ -52,7 +52,7 @@ class krylovBasis:
   ) -> Array:
     e_1 = np.zeros(iter_count+1)
     e_1[0] = 1.
-    z_n = np.dot(la.inv(D_mat[:iter_count, :iter_count]), np.dot(U[:,:iter_count].conj().T, e_1)) * la.norm(self.rhs_vec)
+    z_n = np.dot(la.inv(D_mat[:iter_count, :iter_count]), np.dot(U[:,:iter_count].T, e_1)) * la.norm(self.rhs_vec)
     return z_n
 
   def find_x(
@@ -71,19 +71,18 @@ class krylovBasis:
   def return_eigenvalues_hessenberg(
       self
   ) -> Array:
-    reduced_hessenberg = self.hessenberg[:self.n_basis_vec, :self.n_basic_vec]
+    reduced_hessenberg = self.hessenberg[:self.n_basis_vec, :self.n_basis_vec]
     return la.eig(reduced_hessenberg)
 
 def gmres(
     A_operator: Callable[[Array], Array], 
     rhs_vec: Array, 
     gmres_tol: float=1e-3, 
-    max_iter: int=100,
-    data_type: str='float64'
+    max_iter: int=100
 ) -> Tuple[krylovBasis, float, int]:
   res = 1.
   iter_count = 1
-  basis = krylovBasis(rhs_vec, max_iter, data_type=data_type)
+  basis = krylovBasis(rhs_vec, max_iter)
   while(res > gmres_tol) and (iter_count < max_iter):
     basis.add_basis_vector(A_operator)
     U, _, _ = basis.svd_of_hessenberg(iter_count)
@@ -100,8 +99,7 @@ def gmres(
 
 def hookstep(
     basis: krylovBasis, 
-    Delta: float,
-    data_type: str='float64'
+    Delta: float
 ) -> Tuple[Array, bool]:
   """ Some details from C and K on notation; as above  """ 
   U, D, W_H = basis.svd_of_hessenberg(basis.n_basis_vec) 
@@ -112,7 +110,7 @@ def hookstep(
   def _update_zn(
       mu: float
   ) -> Array:
-    z_n = np.zeros(p_n1.size-1, dtype=data_type)
+    z_n = np.zeros(p_n1.size-1)
     for i in range(basis.n_basis_vec):
       z_n[i] = p_n1[i] * D[i] / (mu + np.real(D[i]) ** 2)
     return z_n  
@@ -135,6 +133,9 @@ def hookstep(
     if la.norm(z_n) < Delta: break
     mu_lower = mu_upper
     mu_upper *= 2
+    if mu_upper > 1e10:
+      print("Bound on hookstep growing to dangerous levels, breaking. ")
+      return _return_updated_x(z_n), 'stop' 
   
   # now bisect to obtain mu s.t. Delta/sqrt(2) < ||zn|| < sqrt(2)*Delta
   while True:
@@ -154,8 +155,7 @@ if __name__ == '__main__':
   n_it = 200
   A = 2 * np.eye(n_it, dtype='float') + (0.5 / (n_it ** 0.5)) * np.random.normal(size=(n_it, n_it))
   
-  def A_mul(q):
-    return A.dot(q)
+  A_mul = lambda q: A.dot(q)
   
   b = np.random.rand(n_it)
   kr_basis, res, iterations = gmres(A_mul, b, gmres_tol=1e-9, max_iter=50)

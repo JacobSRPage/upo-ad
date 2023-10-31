@@ -146,7 +146,8 @@ class TargetedSearchConfig(PeriodicSearchConfig):
                N_opt_damp: int,
                loss_thresh: float,
                observable_fn: Callable[[Tuple[cfd.grids.GridVariable]], float]=lambda x: 0.,
-               observable_thresh: float=0.
+               observable_thresh: float=0.,
+               greater_than_target: int=1
                ):
     self.flow = flow_config
     self.T_guess = T_guess 
@@ -157,6 +158,7 @@ class TargetedSearchConfig(PeriodicSearchConfig):
     self.learning_rate_damp_v = 0.1
     self.observable_fn = observable_fn
     self.observable_thresh = observable_thresh
+    self.greater_than = greater_than_target
 
     advance_velocity_fn = tfm.advance_velocity_module(self.flow.step_fn,
                                                       self.flow.dt_stable,
@@ -166,7 +168,8 @@ class TargetedSearchConfig(PeriodicSearchConfig):
     self.loss_fn = partial(
       lf.loss_fn_diffrax_target_obs, 
       forward_map=advance_velocity_fn,
-      obs_target=self.observable_thresh
+      obs_target=self.observable_thresh,
+      greater_than_target=self.greater_than
       )
     
     self.grad_u_T_shift = partial(glue.grad_u_with_extras_vec, loss_fn=self.loss_fn)
