@@ -181,10 +181,16 @@ class TargetedSearchConfig(PeriodicSearchConfig):
 
   def initial_search(self):
     # ensure initial snapshot is in region of interest
-    observed_quantity = 0.
-    while observed_quantity < self.observable_thresh:
-      v_initial = self.flow.generate_random_ic()
-      observed_quantity = self.observable_fn(v_initial)
+    if self.greater_than == 1:
+      observed_quantity = 0.
+      while observed_quantity < self.observable_thresh:
+        v_initial = self.flow.generate_random_ic()
+        observed_quantity = self.observable_fn(v_initial)
+    else:
+      observed_quantity = 100.
+      while observed_quantity > self.observable_thresh:
+        v_initial = self.flow.generate_random_ic()
+        observed_quantity = self.observable_fn(v_initial)
 
     initial_ar, offsets = glue.gv_tuple_to_jnp(v_initial)
     initial_shape = initial_ar.shape
