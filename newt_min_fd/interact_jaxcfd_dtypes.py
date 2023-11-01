@@ -55,6 +55,48 @@ def x_shift_field(
     shifted_field += (cfd.grids.GridVariable(vel_shifted_array, v.bc),)        
   return shifted_field
 
+def shift_reflect_field(
+    field: Tuple[cfd.grids.GridVariable],
+    n_shift_reflects: int,
+    n_waves: int=4
+) -> Tuple[cfd.grids.GridVariable]:
+  """ Shift-reflect along discrete symmetry
+      Assumes 2D velocity field, Kolmogorov flow  """
+  axis = 1
+  # streamwise and wall-normal velocities
+  u_gv = field[0]
+  v_gv = field[1]
+
+  # wall-normal wavenumbers
+  Ny = u_gv.grid.shape[axis]
+  dy = u_gv.grid.step[axis]
+  Ly = Ny * dy
+  k = 2 * jnp.pi * ft.rfftfreq(Ny, dy)
+
+  # transform to Fourier space and apply shift
+  u_rft = ft.rfftn(u_gv.data)
+  v_rft = ft.rfftn(v_gv.data)
+  u_rft_shifted = u_rft * jnp.exp(1j * k * n_shift_reflects * (Ly / 2.) / n_waves)
+  v_rft_shifted = v_rft * jnp.exp(1j * k * n_shift_reflects * (Ly / 2.) / n_waves)
+
+  if n_shift_reflects % 2 == 0:
+    # physical space GridArrays -> return GridVariables
+    u_shifted_ga = cfd.grids.GridArray(ft.irfftn(u_rft_shifted), u_gv.offset, u_gv.grid)
+    v_shifted_ga = cfd.grids.GridArray(ft.irfftn(v_rft_shifted), v_gv.offset, v_gv.grid)
+    return (cfd.grids.GridVariable(u_shifted_ga, u_gv.bc), cfd.grids.GridVariable(v_shifted_ga, v_gv.bc))
+  else:
+    u_rft_shift_0 = u_rft_shifted[0,:].reshape((1, Ny // 2 + 1))
+    u_rft_shift_others = jnp.flipud(u_rft_shifted[1:,:])
+    v_rft_shift_0 = v_rft_shifted[0,:].reshape((1, Ny // 2 + 1))
+    v_rft_shift_others = jnp.flipud(v_rft_shifted[1:,:])
+
+    u_rft_shift_reflected = (-1) ** n_shift_reflects * jnp.concatenate([u_rft_shift_0, u_rft_shift_others], axis=0)
+    v_rft_shift_reflected = jnp.concatenate([v_rft_shift_0, v_rft_shift_others], axis=0)
+
+    # physical space GridArrays -> return GridVariables
+    u_shift_reflected_ga = cfd.grids.GridArray(ft.irfftn(u_rft_shift_reflected), u_gv.offset, u_gv.grid)
+    v_shift_reflected_ga = cfd.grids.GridArray(ft.irfftn(v_rft_shift_reflected), v_gv.offset, v_gv.grid)
+    return (cfd.grids.GridVariable(u_shift_reflected_ga, u_gv.bc), cfd.grids.GridVariable(v_shift_reflected_ga, v_gv.bc))
 
 # TODO Combine derivatives for general method.
 def x_derivative(

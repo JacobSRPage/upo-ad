@@ -43,8 +43,17 @@ for ar_file, meta_file in zip(array_files, meta_files):
   meta_ar = np.load(meta_file)
   T = meta_ar[0]
   shift = meta_ar[1]
+
+  # catch earlier guesses without shift reflects
+  try:
+    n_shift_reflects = meta_ar[2]
+    if type(n_shift_reflects) != int:
+      n_shift_reflects = 0
+  except:
+    n_shift_reflects = 0
+
   u_guess_gv = glue.jnp_to_gv_tuple(guess_ar, offsets, grid, bc) 
-  guess = nt.poGuess(u_guess_gv, T, shift)
+  guess = nt.poGuess(u_guess_gv, T, shift, n_shift_reflects=n_shift_reflects)
     
   # compute mean flow
   if add_mean_flow: 
@@ -57,8 +66,11 @@ for ar_file, meta_file in zip(array_files, meta_files):
     shift_success = guess.shift_out
     final_loss = guess.newt_resi_history[-1]
     try:
-      np.save('success_' + str(count) + '_spec_array.npy', ar_success)
-      np.save('success_' + str(count) + '_spec_meta.npy', np.array([T_success, shift_success, final_loss]))
+      np.save('success_' + str(count) + '_array.npy', ar_success)
+      np.save('success_' + str(count) + '_meta.npy', np.array([T_success, 
+                                                               shift_success, 
+                                                               guess.n_shift_reflects,
+                                                               final_loss]))
       count += 1
     except:
       print("Erroneous convergence. Moving on.")

@@ -65,6 +65,7 @@ class PeriodicSearchConfig:
     self.thresh = loss_thresh
     self.learning_rate = 0.35
     self.learning_rate_damp_v = 0.1
+    self.n_shift_reflects = 0 # universal 
 
     advance_velocity_fn = tfm.advance_velocity_module(self.flow.step_fn,
                                                       self.flow.dt_stable,
@@ -134,7 +135,7 @@ class PeriodicSearchConfig:
                         '_file' + str(n_success))
           
           print("Success! Good guess number ", n_success)
-          write_guess_and_metadata(u, T, shift_update, loss, file_front)
+          write_guess_and_metadata(u, T, shift_update, self.n_shift_reflects, loss, file_front)
       n_guess += 1
 
 class PeriodicSearchShiftReflectConfig(PeriodicSearchConfig):  
@@ -153,9 +154,10 @@ class PeriodicSearchShiftReflectConfig(PeriodicSearchConfig):
     self.thresh = loss_thresh
     self.learning_rate = 0.35
     self.learning_rate_damp_v = 0.1
+    self.n_shift_reflects = n_shift_reflects
 
     # setup shift reflect function
-    shift_reflect_fn = partial(glue.shift_reflect_field, n_shift_reflects=n_shift_reflects, n_waves=4)
+    shift_reflect_fn = partial(glue.shift_reflect_field, n_shift_reflects=self.n_shift_reflects, n_waves=4)
     shift_reflect_fn = jax.jit(shift_reflect_fn)
 
     advance_velocity_fn = tfm.advance_velocity_module(self.flow.step_fn,
@@ -243,9 +245,9 @@ class TargetedSearchConfig(PeriodicSearchConfig):
 
 
 def write_guess_and_metadata(u: Tuple[cfd.grids.GridVariable], 
-                             T: float, shift: float, loss: float,
+                             T: float, shift: float, shift_reflects: int, loss: float,
                              file_front: str):
-  meta_data = jnp.array([T, shift, loss])
+  meta_data = jnp.array([T, shift, shift_reflects, loss])
   u_ar, _ = glue.gv_tuple_to_jnp(u)
   np.save(file_front + '_meta.npy', meta_data)
   np.save(file_front + '_array.npy', u_ar)
