@@ -137,6 +137,40 @@ class PeriodicSearchConfig:
           write_guess_and_metadata(u, T, shift_update, loss, file_front)
       n_guess += 1
 
+class PeriodicSearchShiftReflectConfig(PeriodicSearchConfig):  
+  def __init__(self, 
+               flow_config: KolFlowSimulationConfig,
+               T_guess: float,
+               n_shift_reflects: int,
+               N_opt: int,
+               N_opt_damp: int,
+               loss_thresh: float
+               ):
+    self.flow = flow_config
+    self.T_guess = T_guess 
+    self.N_opt = N_opt
+    self.N_opt_damp = N_opt_damp
+    self.thresh = loss_thresh
+    self.learning_rate = 0.35
+    self.learning_rate_damp_v = 0.1
+
+    # setup shift reflect function
+    shift_reflect_fn = partial(glue.shift_reflect_field, n_shift_reflects=n_shift_reflects, n_waves=4)
+    shift_reflect_fn = jax.jit(shift_reflect_fn)
+
+    advance_velocity_fn = tfm.advance_velocity_module(self.flow.step_fn,
+                                                      self.flow.dt_stable,
+                                                      lambda x: 0.,
+                                                      max_steps=2 * int(self.T_guess / 
+                                                                        self.flow.dt_stable))
+    self.loss_fn = partial(lf.loss_fn_diffrax_shift_reflects, forward_map=advance_velocity_fn, shift_reflect_fn=shift_reflect_fn)
+    self.grad_u_T_shift = partial(glue.grad_u_with_extras_vec, loss_fn=self.loss_fn)
+    self.optimiser_triple = optimizers.adagrad(self.learning_rate)
+
+    self.loss_fn_damp_v = partial(lf.loss_fn_diffrax_nomean_shift_reflect, forward_map=advance_velocity_fn, shift_reflect_fn=shift_reflect_fn)
+    self.grad_u_T_shift_damp_v = partial(glue.grad_u_with_extras_vec, loss_fn=self.loss_fn_damp_v)
+    self.optimiser_triple_damp_v = optimizers.adagrad(self.learning_rate_damp_v)
+
 class TargetedSearchConfig(PeriodicSearchConfig):
   """ Time-average observable above some threshold """
   def __init__(self, 

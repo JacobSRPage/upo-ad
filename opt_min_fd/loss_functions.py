@@ -34,6 +34,31 @@ def loss_fn_diffrax(
   loss = jnp.linalg.norm(glue.state_vector(shifted_uT) - glue.state_vector(u0), ord=2) / jnp.linalg.norm(glue.state_vector(u0), ord=2)
   return loss
 
+def loss_fn_diffrax_shift_reflects(
+    u0: Tuple[cfd.grids.GridArray], 
+    T: float, 
+    x_shift: float,
+    forward_map: Callable[[State], State],
+    shift_reflect_fn: Callable[[Tuple[cfd.grids.GridArray]], Tuple[cfd.grids.GridArray]]
+) -> float:
+  """ 
+    Credit to P.N. for idea + help on implementation 
+  """
+  # TODO move x_shift into state 
+  state_0 = State(steps = 0,
+                T = T,
+                v_old = u0,
+                v_new = u0,
+                avg_observable = 0.) 
+  state_T = forward_map(state_0) 
+
+  u_T = state_T.v_new
+  shifted_uT = glue.x_shift_field(u_T, x_shift)
+  shift_reflected_uT = shift_reflect_fn(shifted_uT)
+
+  loss = jnp.linalg.norm(glue.state_vector(shift_reflected_uT) - glue.state_vector(u0), ord=2) / jnp.linalg.norm(glue.state_vector(u0), ord=2)
+  return loss
+
 def loss_fn_diffrax_target_obs(
     u0: Tuple[cfd.grids.GridArray], 
     T: float, 
@@ -100,6 +125,28 @@ def loss_fn_diffrax_nomean(
   u_T = state_T.v_new
   shifted_uT = glue.x_shift_field(u_T, x_shift)
 
-  U_mean, V_mean = glue.mean_flows(u0)
+  _, V_mean = glue.mean_flows(u0)
   loss = jnp.linalg.norm(glue.state_vector(shifted_uT) - glue.state_vector(u0), ord=2) / jnp.linalg.norm(glue.state_vector(u0), ord=2) + 1000. * (V_mean ** 2)
+  return loss
+
+def loss_fn_diffrax_nomean_shift_reflect(
+    u0: Tuple[cfd.grids.GridVariable],
+    T: float,
+    x_shift: float,
+    forward_map: Callable[[State], State],
+    shift_reflect_fn: Callable[[Tuple[cfd.grids.GridArray]], Tuple[cfd.grids.GridArray]]
+) -> float:
+  state_0 = State(steps = 0,
+                T = T,
+                v_old = u0,
+                v_new = u0,
+                avg_observable = 0.) 
+  state_T = forward_map(state_0) 
+
+  u_T = state_T.v_new
+  shifted_uT = glue.x_shift_field(u_T, x_shift)
+  shift_reflected_uT = shift_reflect_fn(shifted_uT)
+
+  _, V_mean = glue.mean_flows(u0)
+  loss = jnp.linalg.norm(glue.state_vector(shift_reflected_uT) - glue.state_vector(u0), ord=2) / jnp.linalg.norm(glue.state_vector(u0), ord=2) + 1000. * (V_mean ** 2)
   return loss
