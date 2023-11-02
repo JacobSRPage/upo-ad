@@ -420,21 +420,23 @@ class rpoBranchContinuation(rpoSolverSpectral):
       Re__1: float,
       dt_stable: float
       ):
-    self.omega_guess = jnp.fft.irfftn(po_conv_0.omega_rft_out)
+    self.omega_guess = (jnp.fft.irfftn(po_conv_0.omega_rft_out) + 
+                        (jnp.fft.irfftn(po_conv_0.omega_rft_out) - jnp.fft.irfftn(po_conv__1.omega_rft_out)))
     self.po_0 = po_conv_0
     self.po__1 = po_conv__1
-    self._compute_dr()
 
-    self.T_guess = po_conv_0.T_init
-
+    self.T_guess = po_conv_0.T_out + (po_conv_0.T_out - po_conv__1.T_out)
+    self.a_guess = po_conv_0.shift_out  + (po_conv_0.shift_out - po_conv__1.shift_out)
     self.Re_guess = Re_0 + (Re_0 - Re__1)
+    
     self.Re_0 = Re_0
     self.Re__1 = Re__1
 
-    self.viscosity = self.Re_guess # need to update so that time forward map always defined correctly
+    self._compute_dr()
+
+    self.viscosity = 1. / self.Re_guess # need to update so that time forward map always defined correctly
     self.dt_stable = dt_stable
 
-    self.a_guess = po_conv_0.shift_out
     self.original_shape = self.omega_guess.shape
 
     self.T_current = 0. # keep track for re-jitting time forward map
@@ -442,12 +444,19 @@ class rpoBranchContinuation(rpoSolverSpectral):
     self.Delta_start = self.Delta_rel * self.norm_field(self.omega_guess) 
 
     self.Ndof = self.omega_guess.size
+
+    if po_conv_0.n_shift_reflects != po_conv__1.n_shift_reflects:
+      raise ValueError("Discrete shift reflects for the solutions must match!")
+    # create shift reflect function 
+    self.shift_reflect_fn = partial(insp.y_shift_reflect, 
+                                    grid=self.grid, 
+                                    n_shift_reflects=po_conv__1.n_shift_reflects)
     
-    self._update_F() # S_x u(u0,t) - u0
-    self._update_du_dx() # du0/dx and d S_x uT/dx
-    self._update_du_dt() # du0/dt and d S_x uT/dT
-    self._update_du_dRe() # d S_x uT / dRe 
     self._update_dX_dr() # d X / dr (arclength derivative)
+    self._update_F() # S_x T^n_SR u(u0,t) - u0
+    self._update_du_dx() # du0/dx and d S_x T^n_SR uT/dx
+    self._update_du_dt() # du0/dt and d S_x T^n_SR uT/dT
+    self._update_du_dRe() # d S_x T^n_SR uT / dRe 
 
   def iterate(
       self, 
@@ -483,13 +492,13 @@ class rpoBranchContinuation(rpoSolverSpectral):
       self.Re_guess += dx[-1]
 
       # update viscosity so that time forward map defined correctly
-      self.viscosity = self.Re_guess
+      self.viscosity = 1. / self.Re_guess
 
+      self._update_dX_dr()
       self._update_F()
       self._update_du_dx()
       self._update_du_dt()
       self._update_du_dRe()
-      self._update_dX_dr()
 
       newt_new = la.norm(self.F)
 
@@ -511,13 +520,13 @@ class rpoBranchContinuation(rpoSolverSpectral):
           self.Re_guess = Re_local + dx[-1]
 
           # update viscosity so that time forward map defined correctly
-          self.viscosity = self.Re_guess
+          self.viscosity = 1. / self.Re_guess
 
+          self._update_dX_dr()
           self._update_F()
           self._update_du_dx()
           self._update_du_dt()
           self._update_du_dRe()
-          self._update_dX_dr()
 
           newt_new = la.norm(self.F)
           Delta /= 2.
@@ -543,7 +552,7 @@ class rpoBranchContinuation(rpoSolverSpectral):
         print("Negative period invalid. Ending guess.")
         break
     po_guess.record_outcome(jnp.fft.rfftn(self.omega_guess), self.T_guess, self.a_guess, res_history, newt_count) 
-    return po_guess
+    return po_guess, self.Re_guess
       
   def _timestep_A(
       self, 
@@ -557,7 +566,7 @@ class rpoBranchContinuation(rpoSolverSpectral):
     omega_eta_T = self._timestep_DNS(array_to_timestep.reshape(self.original_shape), self.T_guess)
 
     omega_to_shift = omega_eta_T - self.omega_T
-    Aeta = (1./eps_new) * insp.x_shift(omega_to_shift, self.grid, self.a_guess).reshape((-1,)) - eta_w_T[:self.Ndof]
+    Aeta = (1./eps_new) * self.shift_reflect_fn(insp.x_shift(omega_to_shift, self.grid, self.a_guess)).reshape((-1,)) - eta_w_T[:self.Ndof]
 
     Aeta += self.dSomegaT_dx.reshape((-1,)) * eta_w_T[-3]
     Aeta += self.dSomegaT_dT.reshape((-1,)) * eta_w_T[-2]
@@ -573,7 +582,7 @@ class rpoBranchContinuation(rpoSolverSpectral):
       self
       ):
     self.omega_T = self._timestep_DNS(self.omega_guess, self.T_guess)
-    shifted_omega_T_arr = insp.x_shift(self.omega_T, self.grid, self.a_guess).reshape((-1,))
+    shifted_omega_T_arr = self.shift_reflect_fn(insp.x_shift(self.omega_T, self.grid, self.a_guess)).reshape((-1,))
     omega_g_arr = self.omega_guess.reshape((-1,))
     
     # final term from guess -- notation follows Chandler & Kerswell, JFM 2013
@@ -593,9 +602,16 @@ class rpoBranchContinuation(rpoSolverSpectral):
       self
   ):
     self.dSomegaT_dRe = (
-      insp.x_shift(self.omega_T, self.grid, self.a_guess) - 
-      insp.x_shift(self.po_0.omega_rft_out, self.grid, self.a_guess)
-    ) / (self.Re_guess - self.Re_old)
+      self.shift_reflect_fn(insp.x_shift(self.omega_T, 
+                                         self.grid, 
+                                         self.a_guess)) - 
+      self.shift_reflect_fn(insp.x_shift(jnp.fft.irfftn(self.po__1.omega_rft_out), 
+                                         self.grid, 
+                                         self.a_guess))
+      # self.shift_reflect_fn(insp.x_shift(jnp.fft.irfftn(self.po_0.omega_rft_out), 
+      #                                    self.grid, 
+      #                                    self.a_guess))
+    ) / (self.Re_guess - self.Re__1) #0)
 
   def _compute_dr(
       self
@@ -623,6 +639,14 @@ class rpoBranchContinuation(rpoSolverSpectral):
     )
 
     self.dX_dr = (X - X__1) / (2 * self.dr)
+
+  # domega_dt needs redefining despite inheritcance due to dependence on Re in evaluation
+  def _compute_domega_dt(
+      self, 
+      omega_0: Array 
+  ) -> Array:
+    omega_rft = jnp.fft.rfftn(omega_0)
+    return insp.rhs_equations(omega_rft, self.grid, self.Re_guess)
 
   # TODO function to generate pair of starting states for the above
   def generate_starting_pair_BC():
