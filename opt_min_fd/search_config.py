@@ -129,6 +129,7 @@ class PeriodicSearchConfig:
           shift_update = shift - umean * T
           file_front = ('guesses_with_damp_Re' + str(self.flow.Re) + 
                         '_T' + str(self.T_guess) + 
+                        '_mSR' + str(self.n_shift_reflects) +
                         '_Nopt' + str(self.N_opt) + 
                         '_Noptdamp' + str(self.N_opt_damp) +
                         '_thresh' + str(self.thresh) + 
@@ -192,6 +193,8 @@ class TargetedSearchConfig(PeriodicSearchConfig):
     self.thresh = loss_thresh
     self.learning_rate = 0.35
     self.learning_rate_damp_v = 0.1
+    self.n_shift_reflects = 0
+
     self.observable_fn = observable_fn
     self.observable_thresh = observable_thresh
     self.greater_than = greater_than_target

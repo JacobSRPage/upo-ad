@@ -1,9 +1,7 @@
 from functools import partial
-import jax
 import jax.numpy as jnp
 import numpy as np
 from matplotlib import pyplot as plt
-import pickle
 from jax.config import config
 config.update("jax_enable_x64", True)
 import jax_cfd.base as cfd

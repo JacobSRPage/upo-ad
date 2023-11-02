@@ -1,17 +1,15 @@
-# TODO clean up inheritance; iterate method in particular
-# or iterate changes just based on definition of poGuess 
-from typing import Callable, Tuple, List, Union
-
-import jax
+from typing import Tuple, List, Union
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg as la
+from functools import partial
 
 Array = Union[np.ndarray, jnp.ndarray]
 
 import jax_cfd.base  as cfd
 import arnoldi as ar
 import interact_jaxcfd_dtypes as glue 
+import time_forward_map as tfm
 
 class poGuess:
   def __init__(
@@ -19,12 +17,15 @@ class poGuess:
       u: Tuple[cfd.grids.GridVariable], 
       T: float, 
       shift: float,
+      n_shift_reflects: int=0,
       guess_loss: float=None
   ):
     # TODO convert for pure PO? Or shift = None?
     self.u_init = u
     self.T_init = T
     self.shift_init = shift
+
+    self.n_shift_reflects = n_shift_reflects
     self.guess_loss = guess_loss
 
   def record_outcome(
@@ -44,8 +45,9 @@ class poGuess:
 class newtonBase:
   def __init__(
       self, 
-      forward_map: Callable[[Tuple[cfd.grids.GridVariable], float], Tuple[cfd.grids.GridVariable]], 
       dt_stable: float, 
+      grid: cfd.grids.Grid,
+      Re: float,
       eps_newt: float=1e-10, 
       eps_gm: float=1e-3, 
       eps_fd: float=1e-7,
@@ -55,7 +57,10 @@ class newtonBase:
       Delta_rel: float=0.1
   ):
     """ Delta_start * norm(u) will be the size of the Hookstep constraint. """
-    self.forward_map = forward_map    
+    self.current_tfm = None # will repeatedly build time forward map
+    self.Re = Re
+    self.viscosity = 1. / Re # legacy
+    self.grid = grid
 
     self.eps_newt = eps_newt # Newton step convergence
     self.eps_gm = eps_gm # GMRES Krylov convergence
@@ -72,18 +77,25 @@ class newtonBase:
       po_guess: poGuess
   ):
     return NotImplementedError
+  
+  def _jit_tfm(
+      self
+  ):
+    """ Create time forward map (minimal number of times) """
+    dt_exact = self.T_current / int(self.T_current / self.dt_stable)
+    Nt = int(self.T_current / dt_exact)
+    self.current_tfm = tfm.generate_time_forward_map(dt_exact, Nt, self.grid, self.Re)
 
   def _timestep_DNS(
       self, 
       u0: Tuple[cfd.grids.GridVariable], 
-      T_march: float, 
-      substep_overwrite: float=None
+      T_march: float
   ) -> Tuple[cfd.grids.GridVariable]:
-    uT = self.forward_map(u0, T_march)
-    #if substep_overwrite == None:
-    #  uT = self.forward_map(u0, T_march)
-    #else:
-    #  uT = self.forward_map(u0, T_march, t_substep=substep_overwrite)
+    if T_march != self.T_current:
+      self.T_current = T_march
+      self._jit_tfm()
+
+    uT = self.current_tfm(u0)
     return uT
   
   def iterate(
@@ -119,14 +131,15 @@ class upoSolver(newtonBase):
     self.u_guess = po_guess.u_init
     self.T_guess = po_guess.T_init
 
+    self.T_current = 0. # keep track to re-jit tfm 
+
     self.Delta_start = self.Delta_rel * self._jnp_norm(self.u_guess) 
 
     u_ar, offsets = glue.gv_tuple_to_jnp(self.u_guess)
     self.original_shape = u_ar.shape
     self.Ndof = u_ar.size
     
-    self.offsets = offsets 
-    self.grid = self.u_guess[0].grid
+    self.offsets = offsets
     self.bc = self.u_guess[0].bc
 
     self._update_F() # S_x u(u0,t) - u0
@@ -143,12 +156,17 @@ class upoSolver(newtonBase):
     res_history = []
     newt_count = 0
     while la.norm(self.F) / self._jnp_norm(self.u_guess) > self.eps_newt: # <<< FIX with T, a 
-      kr_basis, gm_res, _ = ar.gmres(self._timestep_A, -self.F, self.eps_gm, self.nmax_gm)
-      dx, _ = ar.hookstep(kr_basis, 2*self.Delta_start)
+      kr_basis, gm_res, _ = ar.gmres(self._timestep_A, 
+                                     -self.F, 
+                                     self.eps_gm, 
+                                     self.nmax_gm)
+      dx, _ = ar.hookstep(kr_basis, 2 * self.Delta_start)
       
       u_guess_update_arr = glue.state_vector(self.u_guess) + dx[:self.Ndof]
       self.u_guess = glue.jnp_to_gv_tuple(u_guess_update_arr.reshape(self.original_shape), 
-                                      self.offsets, self.grid, self.bc)
+                                          self.offsets, 
+                                          self.grid, 
+                                          self.bc)
       self.T_guess += dx[-1]
 
       self._update_F()
@@ -160,6 +178,7 @@ class upoSolver(newtonBase):
       Delta = self.Delta_start
       hook_count = 1
       print("old res: ", newt_res, "new_res: ", newt_new)
+
       if newt_new > newt_res:
         u_local = glue.state_vector(self.u_guess) - dx[:self.Ndof]
         T_local = self.T_guess - dx[-1]
@@ -167,7 +186,9 @@ class upoSolver(newtonBase):
         while newt_new > newt_res:
           dx, _ = ar.hookstep(kr_basis, Delta)
           self.u_guess = glue.jnp_to_gv_tuple((u_local +  dx[:self.Ndof]).reshape(self.original_shape), 
-                                         self.offsets, self.grid, self.bc)
+                                              self.offsets, 
+                                              self.grid, 
+                                              self.bc)
           self.T_guess = T_local + dx[-1]
 
           self._update_F()
@@ -177,8 +198,7 @@ class upoSolver(newtonBase):
           Delta /= 2.
           hook_count += 1
         print("# hooksteps:", hook_count)
-      print("Current Newton residual: ", la.norm(self.F) / 
-           self._jnp_norm(self.u_guess))
+      print("Current Newton residual: ", la.norm(self.F) / self._jnp_norm(self.u_guess))
       print("T guess: ", self.T_guess)
       newt_res = newt_new
       res_history.append(newt_res / self._jnp_norm(self.u_guess))
@@ -206,7 +226,9 @@ class upoSolver(newtonBase):
     # should clean up this back and forth
     array_to_timestep = glue.state_vector(self.u_guess) + eps_new * eta_w_T[:self.Ndof]
     gv_to_timestep = glue.jnp_to_gv_tuple(array_to_timestep.reshape(self.original_shape), 
-                                     self.offsets, self.grid, self.bc)
+                                          self.offsets, 
+                                          self.grid, 
+                                          self.bc)
     u_eta_T = self._timestep_DNS(gv_to_timestep, self.T_guess)
 
     u_diff_ar = glue.state_vector(u_eta_T) - glue.state_vector(self.u_T)
@@ -238,10 +260,13 @@ class upoSolver(newtonBase):
       u_0: Tuple[cfd.grids.GridVariable]
   ) -> Tuple[cfd.grids.GridVariable]:
     dt_ = 10 * self.dt_stable
-    u_out = self._timestep_DNS(u_0, dt_, substep_overwrite=dt_/2)
+    u_out = self._timestep_DNS(u_0, dt_)
       
     dudt_arr = (glue.state_vector(u_out) - glue.state_vector(u_0)) / dt_
-    dudt = glue.jnp_to_gv_tuple(dudt_arr.reshape(self.original_shape), self.offsets, self.grid, self.bc)
+    dudt = glue.jnp_to_gv_tuple(dudt_arr.reshape(self.original_shape), 
+                                self.offsets, 
+                                self.grid, 
+                                self.bc)
     return dudt
 
 
@@ -256,6 +281,7 @@ class rpoSolver(upoSolver):
       self.a_guess = 0.
     else:
       self.a_guess = po_guess.shift_init
+    self.T_current = 0. # keep track for re-jitting tfm 
 
     self.Delta_start = self.Delta_rel * self._jnp_norm(self.u_guess) 
 
@@ -267,9 +293,12 @@ class rpoSolver(upoSolver):
     self.grid = self.u_guess[0].grid
     self.bc = self.u_guess[0].bc
 
-    self._update_F() # S_x u(u0,t) - u0
-    self._update_du_dx() # du0/dx and d S_x uT/dx
-    self._update_du_dt() # du0/dt and d S_x uT/dT
+    # initialise a shift reflect function
+    self.shift_reflect_fn = partial(glue.shift_reflect_field, n_shift_reflects=po_guess.n_shift_reflects)
+
+    self._update_F() # S_x T^n_sr u(u0,t) - u0
+    self._update_du_dx() # du0/dx and d S_x T^n_sr uT/dx
+    self._update_du_dt() # du0/dt and d S_x T^n_sr uT/dT
 
   
   def iterate(
@@ -281,13 +310,16 @@ class rpoSolver(upoSolver):
     newt_res = la.norm(self.F)
     res_history = []
     newt_count = 0
+    hook_over = 0
     while la.norm(self.F) / self._jnp_norm(self.u_guess) > self.eps_newt: # <<< FIX with T, a 
       kr_basis, gm_res, _ = ar.gmres(self._timestep_A, -self.F, self.eps_gm, self.nmax_gm)
       dx, _ = ar.hookstep(kr_basis, 2*self.Delta_start)
       
       u_guess_update_arr = glue.state_vector(self.u_guess) + dx[:self.Ndof]
       self.u_guess = glue.jnp_to_gv_tuple(u_guess_update_arr.reshape(self.original_shape), 
-                                      self.offsets, self.grid, self.bc)
+                                          self.offsets, 
+                                          self.grid, 
+                                          self.bc)
       self.a_guess += dx[-2]
       self.T_guess += dx[-1]
 
@@ -310,7 +342,9 @@ class rpoSolver(upoSolver):
         while newt_new > newt_res:
           dx, hook_info = ar.hookstep(kr_basis, Delta)
           self.u_guess = glue.jnp_to_gv_tuple((u_local +  dx[:self.Ndof]).reshape(self.original_shape), 
-                                         self.offsets, self.grid, self.bc)
+                                              self.offsets, 
+                                              self.grid, 
+                                              self.bc)
           self.a_guess = a_local + dx[-2]
           self.T_guess = T_local + dx[-1]
 
@@ -321,10 +355,10 @@ class rpoSolver(upoSolver):
           newt_new = la.norm(self.F)
           Delta /= 2.
           hook_count += 1
-          if hook_info == 'stop': break # couldn't bound Delta
+          if hook_info == 'stop': 
+            break # couldn't bound Delta
         print("# hooksteps:", hook_count)
-      print("Current Newton residual: ", la.norm(self.F) / 
-           self._jnp_norm(self.u_guess))
+      print("Current Newton residual: ", la.norm(self.F) / self._jnp_norm(self.u_guess))
       print("x-shift guess: ", self.a_guess)
       print("T guess: ", self.T_guess)
       newt_res = newt_new
@@ -338,8 +372,12 @@ class rpoSolver(upoSolver):
         print("Could not obtain any valid trust region. Ending guess.")
         break
       if hook_count > self.nmax_hook:
-        print("Hook steps exceeded limit. Ending guess.")
-        break
+        hook_over += 1
+        if hook_over > 2:
+          print("Hook steps exceeded limit. Ending guess.")
+          break
+        else:
+          print("Hook went over. Allow ", hook_over, 'of', 2)
       if self.T_guess < 0.:
         print("Negative period invalid. Ending guess.")
         break
@@ -356,13 +394,15 @@ class rpoSolver(upoSolver):
     # should clean up this back and forth
     array_to_timestep = glue.state_vector(self.u_guess) + eps_new * eta_w_T[:self.Ndof]
     gv_to_timestep = glue.jnp_to_gv_tuple(array_to_timestep.reshape(self.original_shape), 
-                                     self.offsets, self.grid, self.bc)
+                                          self.offsets, 
+                                          self.grid, 
+                                          self.bc)
     u_eta_T = self._timestep_DNS(gv_to_timestep, self.T_guess)
 
     array_to_shift = glue.state_vector(u_eta_T) - glue.state_vector(self.u_T)
     gv_to_shift = glue.jnp_to_gv_tuple(array_to_shift.reshape(self.original_shape), 
-                                  self.offsets, self.grid, self.bc)
-    Aeta = (1./eps_new) * glue.state_vector(glue.x_shift_field(gv_to_shift, self.a_guess)) - eta_w_T[:self.Ndof]
+                                       self.offsets, self.grid, self.bc)
+    Aeta = (1./eps_new) * glue.state_vector(self.shift_reflect_fn(glue.x_shift_field(gv_to_shift, self.a_guess))) - eta_w_T[:self.Ndof]
 
     Aeta += glue.state_vector(self.dSuT_dx) * eta_w_T[-2]
     Aeta += glue.state_vector(self.dSuT_dT) * eta_w_T[-1]
@@ -375,7 +415,7 @@ class rpoSolver(upoSolver):
       self
   ):
     self.u_T = self._timestep_DNS(self.u_guess, self.T_guess)
-    shifted_u_T_arr = glue.state_vector(glue.x_shift_field(self.u_T, self.a_guess))
+    shifted_u_T_arr = glue.state_vector(self.shift_reflect_fn(glue.x_shift_field(self.u_T, self.a_guess)))
     u_g_arr = glue.state_vector(self.u_guess)
     self.F = np.append(shifted_u_T_arr - u_g_arr, [0., 0.]) # zero for shift, T rows
 
@@ -383,13 +423,13 @@ class rpoSolver(upoSolver):
       self
   ):
     self.du0_dt = self._compute_du_dt(self.u_guess) 
-    self.dSuT_dT = self._compute_du_dt(glue.x_shift_field(self.u_T, self.a_guess))
+    self.dSuT_dT = self._compute_du_dt(self.shift_reflect_fn(glue.x_shift_field(self.u_T, self.a_guess)))
 
   def _update_du_dx(
       self
   ):
     self.du0_dx = self._compute_du_dx(self.u_guess)
-    self.dSuT_dx = self._compute_du_dx(glue.x_shift_field(self.u_T, self.a_guess))
+    self.dSuT_dx = self._compute_du_dx(self.shift_reflect_fn(glue.x_shift_field(self.u_T, self.a_guess)))
 
   def _compute_du_dx(
       self, 

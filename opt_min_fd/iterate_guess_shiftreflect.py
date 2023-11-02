@@ -3,7 +3,6 @@ config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 import jax_cfd.base as cfd
-from interact_jaxcfd_dtypes import shift_reflect_field
 import search_config
 
 # KF config

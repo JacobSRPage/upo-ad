@@ -27,6 +27,29 @@ def x_shift(
   field_phase_shift = (field_rft.T * jnp.exp(1j * k * x_shift)).T
   return jnp.fft.irfftn(field_phase_shift)
 
+def y_shift_reflect(
+    field: Array,
+    grid: cfd.grids.Grid,
+    n_shift_reflects: int,
+    n_waves: int=4
+) -> Array:
+  axis = 1 
+  Ny = grid.shape[axis]
+  dy = grid.step[axis]
+  Ly = Ny * dy
+
+  field_rft = jnp.fft.rfftn(field)
+  k = 2 * jnp.pi * jnp.fft.rfftfreq(Ny, dy)
+  field_rft_shifted = field_rft * jnp.exp(1j * k * n_shift_reflects * (Ly / 2.) / n_waves)
+
+  if n_shift_reflects % 2 == 0:
+    return jnp.fft.irfftn(field_rft_shifted)
+  else:
+    field_rft_shift_0 = field_rft_shifted[0,:].reshape((1, Ny // 2 + 1))
+    field_rft_shift_others = np.flipud(field_rft_shifted[1:,:])
+    field_rft_shift_reflect = (-1.) ** n_shift_reflects * np.concatenate([field_rft_shift_0, field_rft_shift_others], axis=0)
+    return jnp.fft.irfftn(field_rft_shift_reflect)
+
 def x_derivative(
     field: Array,
     grid: cfd.grids.Grid
@@ -76,7 +99,6 @@ def rhs_equations(
     Re: float,
     n_kol_waves: int=4
 ) -> Array:
-  """ NEEDS TESTING -- DOESN'T WORK YET. """
   all_kx = 2 * jnp.pi * jnp.fft.fftfreq(grid.shape[0], grid.step[0])
   all_ky = 2 * jnp.pi * jnp.fft.rfftfreq(grid.shape[1], grid.step[1])
   

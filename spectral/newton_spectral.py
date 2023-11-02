@@ -1,6 +1,7 @@
 """ Have all routines have real input/output, ffts all inside;
     forward maps advance SPECTRAL coeffs  """
 from typing import List, Union
+from functools import partial
 
 import jax.numpy as jnp
 import numpy as np
@@ -19,6 +20,7 @@ class poGuessSpectral:
       omega_rft: Array, 
       T: float, 
       shift: float,
+      n_shift_reflects: int=0,
       guess_loss: float=None,
       trav_wave: bool=False
   ):
@@ -26,6 +28,8 @@ class poGuessSpectral:
     self.omega_rft_init = omega_rft 
     self.T_init = T
     self.shift_init = shift
+
+    self.n_shift_reflects = n_shift_reflects
     self.guess_loss = guess_loss
 
     if trav_wave == True:
@@ -152,9 +156,11 @@ class upoSolverSpectral(newtonBaseSpectral):
  
   def iterate(
       self, 
-      po_guess: poGuessSpectral
+      po_guess: poGuessSpectral,
+      Re: float,
+      dt_stable: float
   ) -> poGuessSpectral:
-    self._initialise_guess(po_guess)
+    self._initialise_guess(po_guess, Re, dt_stable)
 
     newt_res = la.norm(self.F)
     res_history = []
@@ -275,16 +281,23 @@ class rpoSolverSpectral(upoSolverSpectral):
     self.Delta_start = self.Delta_rel * self.norm_field(self.omega_guess) 
 
     self.Ndof = self.omega_guess.size
-    
-    self._update_F() # S_x u(u0,t) - u0
-    self._update_du_dx() # du0/dx and d S_x uT/dx
-    self._update_du_dt() # du0/dt and d S_x uT/dT
+
+    # create shift reflect function 
+    self.shift_reflect_fn = partial(insp.y_shift_reflect, 
+                                    grid=self.grid, 
+                                    n_shift_reflects=po_guess.n_shift_reflects)
+
+    self._update_F() # S_x T^n_SR u(u0,t) - u0
+    self._update_du_dx() # du0/dx and d S_x T^n_SR uT/dx
+    self._update_du_dt() # du0/dt and d S_x T^n_SR uT/dT
 
   def iterate(
       self, 
-      po_guess: poGuessSpectral
+      po_guess: poGuessSpectral,
+      Re: float,
+      dt_stable: float
   ) -> poGuessSpectral:
-    self._initialise_guess(po_guess)
+    self._initialise_guess(po_guess, Re, dt_stable)
 
     newt_res = la.norm(self.F)
     res_history = []
@@ -360,7 +373,10 @@ class rpoSolverSpectral(upoSolverSpectral):
     omega_eta_T = self._timestep_DNS(array_to_timestep.reshape(self.original_shape), self.T_guess)
 
     omega_to_shift = omega_eta_T - self.omega_T
-    Aeta = (1./eps_new) * insp.x_shift(omega_to_shift, self.grid, self.a_guess).reshape((-1,)) - eta_w_T[:self.Ndof]
+    Aeta = (
+      (1./eps_new) * self.shift_reflect_fn(insp.x_shift(omega_to_shift, self.grid, self.a_guess)).reshape((-1,)) - 
+      eta_w_T[:self.Ndof]
+      )
 
     Aeta += self.dSomegaT_dx.reshape((-1,)) * eta_w_T[-2]
     Aeta += self.dSomegaT_dT.reshape((-1,)) * eta_w_T[-1]
@@ -373,7 +389,7 @@ class rpoSolverSpectral(upoSolverSpectral):
       self
   ):
     self.omega_T = self._timestep_DNS(self.omega_guess, self.T_guess)
-    shifted_omega_T_arr = insp.x_shift(self.omega_T, self.grid, self.a_guess).reshape((-1,))
+    shifted_omega_T_arr = self.shift_reflect_fn(insp.x_shift(self.omega_T, self.grid, self.a_guess)).reshape((-1,))
     omega_g_arr = self.omega_guess.reshape((-1,))
     self.F = np.append(shifted_omega_T_arr - omega_g_arr, [0., 0.]) # zero for shift, T rows
 
@@ -381,13 +397,13 @@ class rpoSolverSpectral(upoSolverSpectral):
       self
   ):
     self.domega0_dt = self._compute_domega_dt(self.omega_guess) 
-    self.dSomegaT_dT = self._compute_domega_dt(insp.x_shift(self.omega_T, self.grid, self.a_guess))
+    self.dSomegaT_dT = self._compute_domega_dt(self.shift_reflect_fn(insp.x_shift(self.omega_T, self.grid, self.a_guess)))
 
   def _update_du_dx(
       self
   ):
     self.domega0_dx = self._compute_domega_dx(self.omega_guess)
-    self.dSomegaT_dx = self._compute_domega_dx(insp.x_shift(self.omega_T, self.grid, self.a_guess))
+    self.dSomegaT_dx = self._compute_domega_dx(self.shift_reflect_fn(insp.x_shift(self.omega_T, self.grid, self.a_guess)))
 
   def _compute_domega_dx(
       self, 
