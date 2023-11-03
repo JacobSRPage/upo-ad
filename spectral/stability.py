@@ -1,5 +1,4 @@
 """ Arnoldi for stability of periodic solutions """ 
-import typing
 from typing import Callable, Tuple, List, Union
 
 import jax

@@ -130,134 +130,7 @@ class newtonBaseSpectral:
     return NotImplementedError
 
 
-class upoSolverSpectral(newtonBaseSpectral):
-  def _initialise_guess(
-      self, 
-      po_guess: poGuessSpectral,
-      Re: float,
-      dt_stable: float
-  ):
-    self.omega_guess = jnp.fft.irfftn(po_guess.omega_rft_init)
-    self.T_guess = po_guess.T_init
-    self.original_shape = self.omega_guess.shape
-    self.Re = Re 
-    self.viscosity = 1. / Re
-    self.dt_stable = dt_stable
-
-    self.T_current = 0. # keep track for re-jitting time forward map
-
-    self.Delta_start = self.Delta_rel * self.norm_field(self.omega_guess) 
-
-    self.Ndof = self.omega_guess.size
-    
-    self._update_F() # S_x u(u0,t) - u0
-    self._update_du_dt() # du0/dt and d S_x uT/dT
- 
-  def iterate(
-      self, 
-      po_guess: poGuessSpectral,
-      Re: float,
-      dt_stable: float
-  ) -> poGuessSpectral:
-    self._initialise_guess(po_guess, Re, dt_stable)
-
-    newt_res = la.norm(self.F)
-    res_history = []
-    newt_count = 0
-    while la.norm(self.F) / self.norm_field(self.omega_guess) > self.eps_newt: # <<< FIX with T, a 
-      kr_basis, gm_res, _ = ar.gmres(self._timestep_A, -self.F, self.eps_gm, self.nmax_gm)
-      dx, _ = ar.hookstep(kr_basis, 2*self.Delta_start)
-      
-      omega_guess_update_arr = self.omega_guess.reshape((-1,)) + dx[:self.Ndof]
-      self.omega_guess = omega_guess_update_arr.reshape(self.original_shape) 
-      self.T_guess += dx[-1]
-
-      self._update_du_dt()
-
-      newt_new = la.norm(self.F)
-
-      # (more) hooksteps if reqd
-      Delta = self.Delta_start
-      hook_count = 1
-      print("old res: ", newt_res, "new_res: ", newt_new)
-      if newt_new > newt_res:
-        omega_local = self.omega_guess.reshape((-1,)) - dx[:self.Ndof]
-        T_local = self.T_guess - dx[-1]
-        print("Starting Hookstep... ")
-        while newt_new > newt_res:
-          dx, _ = ar.hookstep(kr_basis, Delta)
-          self.omega_guess = (omega_local + dx[:self.Ndof]).reshape(self.original_shape)
-          self.T_guess = T_local + dx[-1]
-
-          self._update_F()
-          self._update_du_dt()
-
-          newt_new = la.norm(self.F)
-          Delta /= 2.
-          hook_count += 1
-        print("# hooksteps:", hook_count)
-      print("Current Newton residual: ", la.norm(self.F) / 
-           self.norm_field(self.omega_guess))
-      print("T guess: ", self.T_guess)
-      newt_res = newt_new
-      res_history.append(newt_res / self.norm_field(self.omega_guess))
-      newt_count += 1
-      
-      if newt_count > self.nmax_newt: 
-        print("Newton count exceeded limit. Ending guess.")
-        break
-      if hook_count > self.nmax_hook:
-        print("Hook steps exceeded limit. Ending guess.")
-        break
-      if self.T_guess < 0.:
-        print("Negative period invalid. Ending guess.")
-        break
-    po_guess.record_outcome(jnp.fft.rfftn(self.omega_guess), self.T_guess, None, res_history, newt_count)
-    return po_guess
-      
-  def _timestep_A(
-      self, 
-      eta_w_T: Array
-  ) -> Array:
-    # TODO replace finite difference jacobian estimate with jacfwd
-    eps_new = self.eps_fd * self.norm_field(self.omega_guess) / la.norm(eta_w_T[:self.Ndof])
-
-    # should clean up this back and forth
-    array_to_timestep = self.omega_guess.reshape((-1,)) + eps_new * eta_w_T[:self.Ndof]
-    omega_eta_T = self._timestep_DNS(array_to_timestep.reshape(self.original_shape), self.T_guess)
-
-    omega_diff_ar = omega_eta_T.reshape((-1,)) - self.omega_T.reshape((-1,))
-    Aeta = (1./eps_new) * omega_diff_ar - eta_w_T[:self.Ndof]
-
-    Aeta += self.domegaT_dT.reshape((-1,)) * eta_w_T[-1]
-    Aeta_w_T = np.append(Aeta, np.dot(self.domega0_dt.reshape((-1,)), eta_w_T[:self.Ndof])) 
-    return Aeta_w_T
-
-
-  def _update_F(
-      self
-  ):
-    self.omega_T = self._timestep_DNS(self.omega_guess, self.T_guess)
-    omega_T_arr = self.omega_T.reshape((-1,))
-    omega_g_arr = self.omega_guess.reshape((-1,))
-    self.F = np.append(omega_T_arr - omega_g_arr, [0.]) # zero for T row
-
-  def _update_du_dt(
-      self
-  ):
-    self.domega0_dt = self._compute_domega_dt(self.omega_guess) 
-    self.domegaT_dT = self._compute_domega_dt(self.omega_T)
-  
-
-  def _compute_domega_dt(
-      self, 
-      omega_0: Array 
-  ) -> Array:
-    omega_rft = jnp.fft.rfftn(omega_0)
-    return insp.rhs_equations(omega_rft, self.grid, self.Re)
-
-
-class rpoSolverSpectral(upoSolverSpectral):
+class rpoSolverSpectral(newtonBaseSpectral):
   def _initialise_guess(
       self, 
       po_guess: poGuessSpectral,
@@ -409,6 +282,14 @@ class rpoSolverSpectral(upoSolverSpectral):
       omega_0: Array 
   ) -> Array:
     return insp.x_derivative(omega_0, self.grid)
+  
+
+  def _compute_domega_dt(
+      self, 
+      omega_0: Array 
+  ) -> Array:
+    omega_rft = jnp.fft.rfftn(omega_0)
+    return insp.rhs_equations(omega_rft, self.grid, self.Re)
 
 class rpoBranchContinuation(rpoSolverSpectral):
   def _jit_tfm(
@@ -462,10 +343,6 @@ class rpoBranchContinuation(rpoSolverSpectral):
                         (jnp.fft.irfftn(self.po_0.omega_rft_out) - jnp.fft.irfftn(self.po__1.omega_rft_out)))
     self.T_guess = self.po_0.T_out + (self.po_0.T_out - self.po__1.T_out)
     self.a_guess = self.po_0.shift_out  + (self.po_0.shift_out - self.po__1.shift_out)
-    
-    # self.omega_guess = jnp.fft.irfftn(self.po_0.omega_rft_out)
-    # self.T_guess = self.po_0.T_out
-    # self.a_guess = self.po_0.shift_out
     self.Re_guess = self.Re_0 + (self.Re_0 - self.Re__1)
 
     self.dt_stable = dt_stable
@@ -672,7 +549,6 @@ class rpoBranchContinuation(rpoSolverSpectral):
       self.omega_guess.reshape((-1,)),
       [self.a_guess, self.T_guess, self.Re_guess]
     )
-    # self.dX_dr = (X - self.X_0) / self.dr
     self.dX_dr = (X - self.X__1) / (2 * self.dr)
 
   # domega_dt needs redefining despite inheritcance due to dependence on Re in evaluation
@@ -682,3 +558,11 @@ class rpoBranchContinuation(rpoSolverSpectral):
   ) -> Array:
     omega_rft = jnp.fft.rfftn(omega_0)
     return insp.rhs_equations(omega_rft, self.grid, self.Re_guess)
+  
+def write_out_soln_info(file_front: str, 
+                        num: int,
+                        upo: poGuessSpectral,
+                        Re: float):
+  meta_info = jnp.array([upo.T_out, upo.shift_out, upo.n_shift_reflects, Re])
+  jnp.save(file_front + str(num) + '_array.npy', upo.omega_rft_out)
+  jnp.save(file_front + str(num) + '_meta.npy', meta_info)

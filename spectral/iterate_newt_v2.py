@@ -51,5 +51,6 @@ for file_ar, file_meta in zip(array_files, meta_files):
     np.save(file_front + str(count) + '_spec_array.npy', po_update.omega_rft_out)
     np.save(file_front + str(count) + '_spec_meta.npy', np.array([po_update.T_out, 
                                                                   po_update.shift_out,
-                                                                  po_update.newt_resi_history[-1]]))
+                                                                  po_update.n_shift_reflects,
+                                                                  Re]))
     count += 1
