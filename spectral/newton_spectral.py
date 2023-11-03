@@ -95,7 +95,7 @@ class newtonBaseSpectral:
   def _timestep_DNS(
       self, 
       omega_0: Array, # in physical space 
-      T_march: float, 
+      T_march: float
   ) -> Array:
     if T_march != self.T_current:
       self.T_current = T_march
@@ -152,7 +152,6 @@ class upoSolverSpectral(newtonBaseSpectral):
     
     self._update_F() # S_x u(u0,t) - u0
     self._update_du_dt() # du0/dt and d S_x uT/dT
-
  
   def iterate(
       self, 
@@ -303,8 +302,8 @@ class rpoSolverSpectral(upoSolverSpectral):
     res_history = []
     newt_count = 0
     while la.norm(self.F) / self.norm_field(self.omega_guess) > self.eps_newt: # <<< FIX with T, a 
-      kr_basis, gm_res, _ = ar.gmres(self._timestep_A, -self.F, self.eps_gm, self.nmax_gm)
-      dx, _ = ar.hookstep(kr_basis, 2*self.Delta_start)
+      kr_basis, _, _ = ar.gmres(self._timestep_A, -self.F, self.eps_gm, self.nmax_gm)
+      dx, _ = ar.hookstep(kr_basis, 2 * self.Delta_start)
       
       omega_guess_update_arr = self.omega_guess.reshape((-1,)) + dx[:self.Ndof]
       self.omega_guess = omega_guess_update_arr.reshape(self.original_shape) 
@@ -412,6 +411,31 @@ class rpoSolverSpectral(upoSolverSpectral):
     return insp.x_derivative(omega_0, self.grid)
 
 class rpoBranchContinuation(rpoSolverSpectral):
+  def _jit_tfm(
+      self
+  ):
+    """ Create time forward map minimal number of times.
+        Needs re-defining here due to viscosity changes. """
+    dt_exact = self.T_current / int(self.T_current / self.dt_stable)
+    Nt = int(self.T_current / dt_exact)
+    self.current_tfm = tfm.generate_time_forward_map(dt_exact, Nt, self.grid, self.viscosity)
+
+  def _timestep_DNS(
+      self, 
+      omega_0: Array, # in physical space 
+      T_march: float, 
+      viscosity_sim: float
+  ) -> Array:
+    if (T_march != self.T_current) or (viscosity_sim != self.viscosity):
+      self.T_current = T_march
+      self.viscosity = viscosity_sim
+      self._jit_tfm() 
+  
+    omega_rft_0 = jnp.fft.rfftn(omega_0) 
+    omega_rft_T = self.current_tfm(omega_rft_0)
+    omega_T = jnp.fft.irfftn(omega_rft_T)
+    return omega_T 
+
   def _initialise_guess(
       self, 
       po_conv_0: poGuessSpectral,
@@ -420,25 +444,38 @@ class rpoBranchContinuation(rpoSolverSpectral):
       Re__1: float,
       dt_stable: float
       ):
-    self.omega_guess = (jnp.fft.irfftn(po_conv_0.omega_rft_out) + 
-                        (jnp.fft.irfftn(po_conv_0.omega_rft_out) - jnp.fft.irfftn(po_conv__1.omega_rft_out)))
     self.po_0 = po_conv_0
     self.po__1 = po_conv__1
-
-    self.T_guess = po_conv_0.T_out + (po_conv_0.T_out - po_conv__1.T_out)
-    self.a_guess = po_conv_0.shift_out  + (po_conv_0.shift_out - po_conv__1.shift_out)
-    self.Re_guess = Re_0 + (Re_0 - Re__1)
-    
     self.Re_0 = Re_0
     self.Re__1 = Re__1
 
-    self._compute_dr()
+    self.X_0 = np.append(
+      jnp.fft.irfftn(self.po_0.omega_rft_out).reshape((-1,)),
+      [self.po_0.shift_out, self.po_0.T_out, self.Re_0]
+    )
+    self.X__1 = np.append(
+      jnp.fft.irfftn(self.po__1.omega_rft_out).reshape((-1,)),
+      [self.po__1.shift_out, self.po__1.T_out, self.Re__1]
+    )
 
-    self.viscosity = 1. / self.Re_guess # need to update so that time forward map always defined correctly
+    self.omega_guess = (jnp.fft.irfftn(self.po_0.omega_rft_out) + 
+                        (jnp.fft.irfftn(self.po_0.omega_rft_out) - jnp.fft.irfftn(self.po__1.omega_rft_out)))
+    self.T_guess = self.po_0.T_out + (self.po_0.T_out - self.po__1.T_out)
+    self.a_guess = self.po_0.shift_out  + (self.po_0.shift_out - self.po__1.shift_out)
+    
+    # self.omega_guess = jnp.fft.irfftn(self.po_0.omega_rft_out)
+    # self.T_guess = self.po_0.T_out
+    # self.a_guess = self.po_0.shift_out
+    self.Re_guess = self.Re_0 + (self.Re_0 - self.Re__1)
+
     self.dt_stable = dt_stable
+
+    self._compute_dr()
 
     self.original_shape = self.omega_guess.shape
 
+    # viscosity will change throughout requiring re-compiliation of forward map
+    self.viscosity = 1. / self.Re_guess 
     self.T_current = 0. # keep track for re-jitting time forward map
 
     self.Delta_start = self.Delta_rel * self.norm_field(self.omega_guess) 
@@ -447,10 +484,11 @@ class rpoBranchContinuation(rpoSolverSpectral):
 
     if po_conv_0.n_shift_reflects != po_conv__1.n_shift_reflects:
       raise ValueError("Discrete shift reflects for the solutions must match!")
+    self.n_shift_reflects = po_conv__1.n_shift_reflects
     # create shift reflect function 
     self.shift_reflect_fn = partial(insp.y_shift_reflect, 
                                     grid=self.grid, 
-                                    n_shift_reflects=po_conv__1.n_shift_reflects)
+                                    n_shift_reflects=self.n_shift_reflects)
     
     self._update_dX_dr() # d X / dr (arclength derivative)
     self._update_F() # S_x T^n_SR u(u0,t) - u0
@@ -475,7 +513,8 @@ class rpoBranchContinuation(rpoSolverSpectral):
     po_guess = poGuessSpectral(
       self.omega_guess,
       self.T_guess,
-      self.a_guess
+      self.a_guess,
+      n_shift_reflects=self.n_shift_reflects
     )
 
     newt_res = la.norm(self.F)
@@ -483,7 +522,7 @@ class rpoBranchContinuation(rpoSolverSpectral):
     newt_count = 0
     while la.norm(self.F) / self.norm_field(self.omega_guess) > self.eps_newt: # <<< FIX with T, a 
       kr_basis, _, _ = ar.gmres(self._timestep_A, -self.F, self.eps_gm, self.nmax_gm)
-      dx, _ = ar.hookstep(kr_basis, 2*self.Delta_start)
+      dx, _ = ar.hookstep(kr_basis, 2 * self.Delta_start)
       
       omega_guess_update_arr = self.omega_guess.reshape((-1,)) + dx[:self.Ndof]
       self.omega_guess = omega_guess_update_arr.reshape(self.original_shape) 
@@ -563,10 +602,14 @@ class rpoBranchContinuation(rpoSolverSpectral):
 
     # should clean up this back and forth
     array_to_timestep = self.omega_guess.reshape((-1,)) + eps_new * eta_w_T[:self.Ndof]
-    omega_eta_T = self._timestep_DNS(array_to_timestep.reshape(self.original_shape), self.T_guess)
+    omega_eta_T = self._timestep_DNS(array_to_timestep.reshape(self.original_shape), 
+                                     self.T_guess,
+                                     self.viscosity)
 
     omega_to_shift = omega_eta_T - self.omega_T
-    Aeta = (1./eps_new) * self.shift_reflect_fn(insp.x_shift(omega_to_shift, self.grid, self.a_guess)).reshape((-1,)) - eta_w_T[:self.Ndof]
+    Aeta = ((1./eps_new) * 
+            self.shift_reflect_fn(insp.x_shift(omega_to_shift, self.grid, self.a_guess)).reshape((-1,)) - 
+            eta_w_T[:self.Ndof])
 
     Aeta += self.dSomegaT_dx.reshape((-1,)) * eta_w_T[-3]
     Aeta += self.dSomegaT_dT.reshape((-1,)) * eta_w_T[-2]
@@ -581,8 +624,11 @@ class rpoBranchContinuation(rpoSolverSpectral):
   def _update_F(
       self
       ):
-    self.omega_T = self._timestep_DNS(self.omega_guess, self.T_guess)
-    shifted_omega_T_arr = self.shift_reflect_fn(insp.x_shift(self.omega_T, self.grid, self.a_guess)).reshape((-1,))
+    self.omega_T = self._timestep_DNS(self.omega_guess, self.T_guess, self.viscosity)
+    shifted_omega_T_arr = self.shift_reflect_fn(insp.x_shift(self.omega_T, 
+                                                             self.grid, 
+                                                             self.a_guess
+                                                             )).reshape((-1,))
     omega_g_arr = self.omega_guess.reshape((-1,))
     
     # final term from guess -- notation follows Chandler & Kerswell, JFM 2013
@@ -590,55 +636,44 @@ class rpoBranchContinuation(rpoSolverSpectral):
       self.omega_guess.reshape((-1,)),
       [self.a_guess, self.T_guess, self.Re_guess]
     )
-    X_0 = np.append(
-      jnp.fft.irfftn(self.po_0.omega_rft_out).reshape((-1,)),
-      [self.po_0.shift_out, self.po_0.T_out, self.Re_0]
-    )
-    N_X = (X - X_0).dot(self.dX_dr) - self.dr
+
+    N_X = (X - self.X_0).dot(self.dX_dr) - self.dr
 
     self.F = np.append(shifted_omega_T_arr - omega_g_arr, [0., 0., N_X]) # zero for shift, T rows
 
   def _update_du_dRe(
-      self
+      self,
+      delta_Re: float=1e-7
   ):
+    perturbed_viscosity = 1. / (self.Re_guess + delta_Re)
+    omega_T_larger_Re = self._timestep_DNS(self.omega_guess, 
+                                           self.T_guess, 
+                                           perturbed_viscosity)
     self.dSomegaT_dRe = (
-      self.shift_reflect_fn(insp.x_shift(self.omega_T, 
+      self.shift_reflect_fn(insp.x_shift(omega_T_larger_Re, 
                                          self.grid, 
                                          self.a_guess)) - 
-      self.shift_reflect_fn(insp.x_shift(jnp.fft.irfftn(self.po__1.omega_rft_out), 
+      self.shift_reflect_fn(insp.x_shift(self.omega_T, 
                                          self.grid, 
                                          self.a_guess))
-      # self.shift_reflect_fn(insp.x_shift(jnp.fft.irfftn(self.po_0.omega_rft_out), 
-      #                                    self.grid, 
-      #                                    self.a_guess))
-    ) / (self.Re_guess - self.Re__1) #0)
+    ) / delta_Re
+    self.viscosity = 1. / self.Re_guess
 
   def _compute_dr(
       self
       ):
     """ Compute (fixed) arclength between two given solutions """
-    X_0 = np.append(
-      jnp.fft.irfftn(self.po_0.omega_rft_out).reshape((-1,)),
-      [self.po_0.shift_out, self.po_0.T_out, self.Re_0]
-    )
-    X__1 = np.append(
-      jnp.fft.irfftn(self.po__1.omega_rft_out).reshape((-1,)),
-      [self.po__1.shift_out, self.po__1.T_out, self.Re__1]
-    )
-    dX = X_0 - X__1
+    dX = self.X_0 - self.X__1
     self.dr = la.norm(dX)
+    print("Physical arclength: ", self.dr)
 
   def _update_dX_dr(self):
     X = np.append(
       self.omega_guess.reshape((-1,)),
       [self.a_guess, self.T_guess, self.Re_guess]
     )
-    X__1 = np.append(
-      jnp.fft.irfftn(self.po__1.omega_rft_out).reshape((-1,)),
-      [self.po__1.shift_out, self.po__1.T_out, self.Re__1]
-    )
-
-    self.dX_dr = (X - X__1) / (2 * self.dr)
+    # self.dX_dr = (X - self.X_0) / self.dr
+    self.dX_dr = (X - self.X__1) / (2 * self.dr)
 
   # domega_dt needs redefining despite inheritcance due to dependence on Re in evaluation
   def _compute_domega_dt(
@@ -647,7 +682,3 @@ class rpoBranchContinuation(rpoSolverSpectral):
   ) -> Array:
     omega_rft = jnp.fft.rfftn(omega_0)
     return insp.rhs_equations(omega_rft, self.grid, self.Re_guess)
-
-  # TODO function to generate pair of starting states for the above
-  def generate_starting_pair_BC():
-    raise NotImplementedError
