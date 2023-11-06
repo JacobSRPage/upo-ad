@@ -9,7 +9,8 @@ import scipy.linalg as la
 Array = Union[np.ndarray, jnp.ndarray]
 
 import jax_cfd.base  as cfd
-import arnoldi as ar
+
+import opt_newt_jaxcfd.newton.arnoldi as ar
 
 def x_shift(
     field: Array,

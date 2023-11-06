@@ -10,9 +10,10 @@ import scipy.linalg as la
 Array = Union[np.ndarray, jnp.ndarray]
 
 import jax_cfd.base  as cfd
-import arnoldi as ar
-import interact_spectral as insp 
-import time_forward_map_spectral as tfm
+
+from opt_newt_jaxcfd.newton import arnoldi as ar
+from opt_newt_jaxcfd.interact_jaxcfd import interact_spectral as insp
+from opt_newt_jaxcfd.interact_jaxcfd import time_forward_map_spectral as tfm
 
 class poGuessSpectral:
   def __init__(
