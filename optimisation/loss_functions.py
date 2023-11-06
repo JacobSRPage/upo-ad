@@ -9,8 +9,9 @@ import scipy.linalg as la
 Array = Union[np.ndarray, jnp.ndarray]
 
 import jax_cfd.base  as cfd
-import interact_jaxcfd_dtypes as glue
-from time_forward_map import State
+
+from opt_newt_jaxcfd.interact_jaxcfd import interact_jaxcfd_dtypes as glue
+from opt_newt_jaxcfd.interact_jaxcfd.time_forward_map import State
 
 def loss_fn_diffrax(
     u0: Tuple[cfd.grids.GridArray], 

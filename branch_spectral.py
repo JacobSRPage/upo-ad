@@ -6,8 +6,8 @@ import copy
 import jax.numpy as jnp
 import jax_cfd.base as cfd
 
-import interact_spectral as insp
-import newton_spectral as nt_sp
+from opt_newt_jaxcfd.interact_jaxcfd import interact_spectral as insp
+from opt_newt_jaxcfd.newton import newton_spectral as nt_sp
 
 #  setup problem 
 Nx = 256

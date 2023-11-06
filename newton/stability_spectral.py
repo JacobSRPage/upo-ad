@@ -9,9 +9,10 @@ Array = jnp.ndarray
 from functools import partial
 
 import jax_cfd.base  as cfd
-import interact_spectral as insp 
-import time_forward_map_spectral as tfm
-import newton_spectral as nt_sp
+
+from opt_newt_jaxcfd.interact_jaxcfd import interact_spectral as insp 
+from opt_newt_jaxcfd.interact_jaxcfd import time_forward_map_spectral as tfm
+from opt_newt_jaxcfd.newton import newton_spectral as nt_sp
 
 from scipy.sparse.linalg import eigs as arp_eigs
 from scipy.sparse.linalg import LinearOperator

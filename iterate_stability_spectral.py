@@ -5,8 +5,8 @@ import jax.numpy as jnp
 
 import jax_cfd.base  as cfd
 
-import newton_spectral as nt_sp
-import stability as st
+from opt_newt_jaxcfd.newton import newton_spectral as nt_sp
+from opt_newt_jaxcfd.newton import stability_spectral as st
 
 from jax.config import config
 config.update("jax_enable_x64", True)

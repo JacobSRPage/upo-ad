@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 import numpy as np
 
-import interact_jaxcfd_dtypes as glue
+from opt_newt_jaxcfd.interact_jaxcfd import interact_jaxcfd_dtypes as glue
 
 def iterate_optimizer_for_rpo(
     optimizer_triple, 

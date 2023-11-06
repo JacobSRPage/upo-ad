@@ -6,8 +6,8 @@ import jax_cfd.base as cfd
 from jax.config import config
 config.update("jax_enable_x64", True)
 
-import interact_jaxcfd_dtypes as glue
-import newton_spectral as nt_sp
+from opt_newt_jaxcfd.interact_jaxcfd import interact_jaxcfd_dtypes as glue
+from opt_newt_jaxcfd.newton import newton_spectral as nt_sp
 
 file_front = 'guesses_Jun5/guess_'
 

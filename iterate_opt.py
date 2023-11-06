@@ -3,7 +3,8 @@ config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 import jax_cfd.base as cfd
-import search_config
+
+from opt_newt_jaxcfd.optimisation import search_config
 
 # KF config
 T_guess = 5.

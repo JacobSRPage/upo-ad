@@ -6,9 +6,9 @@ from jax.config import config
 config.update("jax_enable_x64", True)
 import jax_cfd.base as cfd
 
-import time_forward_map as tfm
-import newton as nt
-import interact_jaxcfd_dtypes as glue
+from opt_newt_jaxcfd.interact_jaxcfd import interact_jaxcfd_dtypes as glue
+from opt_newt_jaxcfd.interact_jaxcfd import time_forward_map as tfm
+from opt_newt_jaxcfd.newton import newton as nt
 
 file_front = 'guesses_Re40/guesses_with_damp_Re40.0_T4.0_Nopt400_Noptdamp100_thresh0.05_file'
 N_files = 10

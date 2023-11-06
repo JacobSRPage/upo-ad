@@ -6,10 +6,10 @@ from functools import partial
 
 Array = Union[np.ndarray, jnp.ndarray]
 
-import jax_cfd.base  as cfd
-import arnoldi as ar
-import interact_jaxcfd_dtypes as glue 
-import time_forward_map as tfm
+import jax_cfd.base as cfd
+from opt_newt_jaxcfd.newton import arnoldi as ar
+from opt_newt_jaxcfd.interact_jaxcfd import interact_jaxcfd_dtypes as glue 
+from opt_newt_jaxcfd.interact_jaxcfd import time_forward_map as tfm
 
 class poGuess:
   def __init__(

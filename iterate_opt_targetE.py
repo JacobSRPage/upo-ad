@@ -5,8 +5,9 @@ from functools import partial
 
 import jax.numpy as jnp
 import jax_cfd.base as cfd
-import search_config
-import diagnostics as dg
+
+from opt_newt_jaxcfd.optimisation import search_config
+from opt_newt_jaxcfd.interact_jaxcfd import diagnostics_fd as dg
 
 # KF config
 T_guess = 5.5
@@ -16,8 +17,8 @@ Ny = 256
 Lx = 2 * jnp.pi
 Ly = 2 * jnp.pi
 
-diss_threshold = 0.1
-greater_than = 0
+energy_threshold = 0.45
+greater_than = 1
 
 # optimiser config
 n_opt_steps = 250
@@ -28,14 +29,14 @@ grid = cfd.grids.Grid((Nx, Ny), domain=((0, Lx), (0, Ly)))
 flow_setup = search_config.KolFlowSimulationConfig(Re, grid)
 
 # configure specific search
-diss_fn = partial(dg.compute_diss_snapshot, Re=Re, n_kol_waves=4)
+energy_fn = partial(dg.compute_energy_snapshot, grid=grid, Re=Re, n_kol_waves=4)
 opt_setup = search_config.TargetedSearchConfig(flow_setup, 
                                                T_guess,
                                                n_opt_steps, 
                                                n_damp_steps,
                                                loss_thresh,
-                                               observable_fn=diss_fn,
-                                               observable_thresh=diss_threshold,
+                                               observable_fn=energy_fn,
+                                               observable_thresh=energy_threshold,
                                                greater_than_target=greater_than
                                                )
 

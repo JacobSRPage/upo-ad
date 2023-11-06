@@ -6,10 +6,11 @@ import jax.example_libraries.optimizers as optimizers
 
 import numpy as np
 import jax_cfd.base as cfd 
-import time_forward_map as tfm
-import interact_jaxcfd_dtypes as glue
-import loss_functions as lf
-import optimisation as op
+
+from opt_newt_jaxcfd.interact_jaxcfd import time_forward_map as tfm
+from opt_newt_jaxcfd.interact_jaxcfd import interact_jaxcfd_dtypes as glue
+from opt_newt_jaxcfd.optimisation import loss_functions as lf
+from opt_newt_jaxcfd.optimisation import optimisation as op
 
 from typing import Tuple, Callable
 
