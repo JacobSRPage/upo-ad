@@ -4,7 +4,7 @@ def downsample_rft_traj(vort_rft_traj: jnp.ndarray, N_downsample: int) -> jnp.nd
   """Downsamples an array of Fourier coefficients obtained from jnp.fft.rfftn().
 
   Args:
-    vort_rft_traj (jnp.ndarray): Input array of Fourier coefficients.
+    vort_rft_traj (jnp.ndarray): Input array of Fourier coefficients (from rft).
                                      First dimension represents time.
     N_downsample (int): Downsampling factor.
 
@@ -43,7 +43,7 @@ def downsample_rft_traj(vort_rft_traj: jnp.ndarray, N_downsample: int) -> jnp.nd
     vort_rft_traj = jnp.concatenate([vort_rft_front, vort_rft_back], axis=loc)
     loc += 1
 
-  return vort_rft_traj // N_downsample ** 2
+  return vort_rft_traj / N_downsample ** 2
 
 def upsample_rft_traj(vort_rft_traj: jnp.ndarray, N_upsample: int) -> jnp.ndarray:
   """Upsamples an array of Fourier coefficients to a higher resolution grid.

@@ -4,7 +4,6 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import numpy as np
-import diffrax # TODO -- replace with corresponding equinox implementation 
 
 import jax_cfd.base as cfd
 import jax_cfd.spectral as spectral

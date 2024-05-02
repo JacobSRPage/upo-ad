@@ -10,8 +10,6 @@ Array = Union[np.ndarray, jnp.ndarray]
 
 import jax_cfd.base  as cfd
 
-import opt_newt_jaxcfd.newton.arnoldi as ar
-
 def x_shift(
     field: Array,
     grid: cfd.grids.Grid,
