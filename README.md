@@ -11,4 +11,4 @@ export PYTHONPATH="${PYTHONPATH}:/path/to/dir/
 ``` 
 
 For details on the method please refer to our paper "Recurrent flow patterns as a basis for two-dimensional turbulence: predicting statistics from structures" (accepted in Proc. Nat. Acad. Sci., see https://arxiv.org/abs/2212.11886).
-Implementation of the method relies on the bounded while loops from the excellent equinox library (https://github.com/patrick-kidger/equinox). 
+Implementation of the method relies on the bounded while loops from the excellent equinox library (https://github.com/patrick-kidger/equinox) to enable jit compilation with a varying target time (period) $T$. 
