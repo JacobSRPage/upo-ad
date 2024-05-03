@@ -7,7 +7,7 @@ This repository contains code to (1) search for candidate periodic orbits via gr
 The directory is structured as a python package and for installation users should clone this repository and add it to the python path: 
 
 ```bash
-export PYTHONPATH="${PYTHONPATH}:/path/to/dir/
+export PYTHONPATH="${PYTHONPATH}:/path/to/dir/"
 ``` 
 
 For details on the method please refer to our paper "Recurrent flow patterns as a basis for two-dimensional turbulence: predicting statistics from structures" (accepted in Proc. Nat. Acad. Sci., see https://arxiv.org/abs/2212.11886).
