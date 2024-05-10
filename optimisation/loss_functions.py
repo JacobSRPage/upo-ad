@@ -30,9 +30,6 @@ def loss_fn_diffrax(
     x_shift: float,
     forward_map: Callable[[State], State]
 ) -> float:
-  """ 
-    Credit to P.N. for idea + help on implementation 
-  """
   # TODO move x_shift into state 
   state_0 = State(steps = 0,
                 T = T,
@@ -54,9 +51,6 @@ def loss_fn_diffrax_shift_reflects(
     forward_map: Callable[[State], State],
     shift_reflect_fn: Callable[[Tuple[cfd.grids.GridArray]], Tuple[cfd.grids.GridArray]]
 ) -> float:
-  """ 
-    Credit to P.N. for idea + help on implementation 
-  """
   # TODO move x_shift into state 
   state_0 = State(steps = 0,
                 T = T,
@@ -80,9 +74,6 @@ def loss_fn_diffrax_target_obs(
     obs_target: float,
     greater_than_target: int=1 # set to 0 to search less than
 ) -> float:
-  """ 
-    Credit to P.N. for idea + help on implementation 
-  """
   # TODO move x_shift into state 
   state_0 = State(steps = 0,
                 T = T,
@@ -105,9 +96,6 @@ def loss_fn_diffrax_targetT(
     T_target: float,
     forward_map: Callable[[State], State]
 ) -> float:
-  """ 
-    Credit to P.N. for idea + help on implementation 
-  """
   # TODO move x_shift into state 
   state_0 = State(steps = 0,
                 T = T,
