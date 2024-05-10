@@ -21,7 +21,7 @@ loss_thresh = 2. # when to save a guess for Newton
 
 grid = cfd.grids.Grid((Nx, Ny), domain=((0, Lx), (0, Ly)))
 flow_setup = search_config.KolFlowSimulationConfig(Re, grid)
-opt_setup = search_config.PeriodicSearchConfig(flow_setup, T_guess,
+opt_setup = sEARCH_CONFig.PeriodicSearchConfig(flow_setup, T_guess,
                                                n_opt_steps, n_damp_steps,
                                                loss_thresh)
 

@@ -2,6 +2,7 @@
 from typing import Callable, Tuple, List, Union
 
 import jax
+
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg as la
@@ -12,6 +13,16 @@ import jax_cfd.base  as cfd
 
 from opt_newt_jaxcfd.interact_jaxcfd import interact_jaxcfd_dtypes as glue
 from opt_newt_jaxcfd.interact_jaxcfd.time_forward_map import State
+
+def loss_fn_test(
+    u0,
+    T,
+    shift,
+    forward_map
+):
+  state_0 = State(steps = 0, T = T, v_old = u0, v_new = u0, avg_observable=0.)
+  state_T = forward_map(state_0)
+  return None
 
 def loss_fn_diffrax(
     u0: Tuple[cfd.grids.GridArray], 
@@ -28,6 +39,7 @@ def loss_fn_diffrax(
                 v_old = u0,
                 v_new = u0,
                 avg_observable = 0.) 
+  print(state_0)
   state_T = forward_map(state_0) 
 
   u_T = state_T.v_new
@@ -54,10 +66,10 @@ def loss_fn_diffrax_shift_reflects(
   state_T = forward_map(state_0) 
 
   u_T = state_T.v_new
-  shifted_uT = glue.x_shift_field(u_T, x_shift)
-  shift_reflected_uT = shift_reflect_fn(shifted_uT)
+  shift_reflected_uT = shift_reflect_fn(u_T)
+  shifted_uT = glue.x_shift_field(shift_reflected_uT, x_shift)
 
-  loss = jnp.linalg.norm(glue.state_vector(shift_reflected_uT) - glue.state_vector(u0), ord=2) / jnp.linalg.norm(glue.state_vector(u0), ord=2)
+  loss = jnp.linalg.norm(glue.state_vector(shifted_uT) - glue.state_vector(u0), ord=2) / jnp.linalg.norm(glue.state_vector(u0), ord=2)
   return loss
 
 def loss_fn_diffrax_target_obs(
@@ -145,9 +157,9 @@ def loss_fn_diffrax_nomean_shift_reflect(
   state_T = forward_map(state_0) 
 
   u_T = state_T.v_new
-  shifted_uT = glue.x_shift_field(u_T, x_shift)
-  shift_reflected_uT = shift_reflect_fn(shifted_uT)
+  shift_reflected_uT = shift_reflect_fn(u_T)
+  shifted_uT = glue.x_shift_field(shift_reflected_uT, x_shift)
 
   _, V_mean = glue.mean_flows(u0)
-  loss = jnp.linalg.norm(glue.state_vector(shift_reflected_uT) - glue.state_vector(u0), ord=2) / jnp.linalg.norm(glue.state_vector(u0), ord=2) + 1000. * (V_mean ** 2)
+  loss = jnp.linalg.norm(glue.state_vector(shifted_uT) - glue.state_vector(u0), ord=2) / jnp.linalg.norm(glue.state_vector(u0), ord=2) + 1000. * (V_mean ** 2)
   return loss

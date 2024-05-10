@@ -14,7 +14,7 @@ Ny = 128
 Lx = 2 * jnp.pi
 Ly = 2 * jnp.pi
 
-n_shift_reflects = 1
+n_shift_reflects = 4
 
 # optimiser config
 n_opt_steps = 20
