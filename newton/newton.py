@@ -402,7 +402,7 @@ class rpoSolver(upoSolver):
     array_to_shift = glue.state_vector(u_eta_T) - glue.state_vector(self.u_T)
     gv_to_shift = glue.jnp_to_gv_tuple(array_to_shift.reshape(self.original_shape), 
                                        self.offsets, self.grid, self.bc)
-    Aeta = (1./eps_new) * glue.state_vector(self.shift_reflect_fn(glue.x_shift_field(gv_to_shift, self.a_guess))) - eta_w_T[:self.Ndof]
+    Aeta = (1./eps_new) * glue.state_vector(glue.x_shift_field(self.shift_reflect_fn(gv_to_shift), self.a_guess)) - eta_w_T[:self.Ndof]
 
     Aeta += glue.state_vector(self.dSuT_dx) * eta_w_T[-2]
     Aeta += glue.state_vector(self.dSuT_dT) * eta_w_T[-1]
@@ -415,7 +415,7 @@ class rpoSolver(upoSolver):
       self
   ):
     self.u_T = self._timestep_DNS(self.u_guess, self.T_guess)
-    shifted_u_T_arr = glue.state_vector(self.shift_reflect_fn(glue.x_shift_field(self.u_T, self.a_guess)))
+    shifted_u_T_arr = glue.state_vector(glue.x_shift_field(self.shift_reflect_fn(self.u_T), self.a_guess))
     u_g_arr = glue.state_vector(self.u_guess)
     self.F = np.append(shifted_u_T_arr - u_g_arr, [0., 0.]) # zero for shift, T rows
 
@@ -423,13 +423,13 @@ class rpoSolver(upoSolver):
       self
   ):
     self.du0_dt = self._compute_du_dt(self.u_guess) 
-    self.dSuT_dT = self._compute_du_dt(self.shift_reflect_fn(glue.x_shift_field(self.u_T, self.a_guess)))
+    self.dSuT_dT = self._compute_du_dt(glue.x_shift_field(self.shift_reflect_fn(self.u_T), self.a_guess))
 
   def _update_du_dx(
       self
   ):
     self.du0_dx = self._compute_du_dx(self.u_guess)
-    self.dSuT_dx = self._compute_du_dx(self.shift_reflect_fn(glue.x_shift_field(self.u_T, self.a_guess)))
+    self.dSuT_dx = self._compute_du_dx(glue.x_shift_field(self.shift_reflect_fn(self.u_T), self.a_guess))
 
   def _compute_du_dx(
       self, 

@@ -247,7 +247,7 @@ class rpoSolverSpectral(newtonBaseSpectral):
 
     omega_to_shift = omega_eta_T - self.omega_T
     Aeta = (
-      (1./eps_new) * self.shift_reflect_fn(insp.x_shift(omega_to_shift, self.grid, self.a_guess)).reshape((-1,)) - 
+      (1./eps_new) * insp.x_shift(self.shift_reflect_fn(omega_to_shift), self.grid, self.a_guess).reshape((-1,)) - 
       eta_w_T[:self.Ndof]
       )
 
@@ -262,7 +262,7 @@ class rpoSolverSpectral(newtonBaseSpectral):
       self
   ):
     self.omega_T = self._timestep_DNS(self.omega_guess, self.T_guess)
-    shifted_omega_T_arr = self.shift_reflect_fn(insp.x_shift(self.omega_T, self.grid, self.a_guess)).reshape((-1,))
+    shifted_omega_T_arr = insp.x_shift(self.shift_reflect_fn(self.omega_T), self.grid, self.a_guess).reshape((-1,))
     omega_g_arr = self.omega_guess.reshape((-1,))
     self.F = np.append(shifted_omega_T_arr - omega_g_arr, [0., 0.]) # zero for shift, T rows
 
@@ -270,13 +270,13 @@ class rpoSolverSpectral(newtonBaseSpectral):
       self
   ):
     self.domega0_dt = self._compute_domega_dt(self.omega_guess) 
-    self.dSomegaT_dT = self._compute_domega_dt(self.shift_reflect_fn(insp.x_shift(self.omega_T, self.grid, self.a_guess)))
+    self.dSomegaT_dT = self._compute_domega_dt(insp.x_shift(self.shift_reflect_fn(self.omega_T), self.grid, self.a_guess))
 
   def _update_du_dx(
       self
   ):
     self.domega0_dx = self._compute_domega_dx(self.omega_guess)
-    self.dSomegaT_dx = self._compute_domega_dx(self.shift_reflect_fn(insp.x_shift(self.omega_T, self.grid, self.a_guess)))
+    self.dSomegaT_dx = self._compute_domega_dx(insp.x_shift(self.shift_reflect_fn(self.omega_T), self.grid, self.a_guess))
 
   def _compute_domega_dx(
       self, 
@@ -486,7 +486,7 @@ class rpoBranchContinuation(rpoSolverSpectral):
 
     omega_to_shift = omega_eta_T - self.omega_T
     Aeta = ((1./eps_new) * 
-            self.shift_reflect_fn(insp.x_shift(omega_to_shift, self.grid, self.a_guess)).reshape((-1,)) - 
+            insp.x_shift(self.shift_reflect_fn(omega_to_shift), self.grid, self.a_guess).reshape((-1,)) - 
             eta_w_T[:self.Ndof])
 
     Aeta += self.dSomegaT_dx.reshape((-1,)) * eta_w_T[-3]
@@ -503,10 +503,10 @@ class rpoBranchContinuation(rpoSolverSpectral):
       self
       ):
     self.omega_T = self._timestep_DNS(self.omega_guess, self.T_guess, self.viscosity)
-    shifted_omega_T_arr = self.shift_reflect_fn(insp.x_shift(self.omega_T, 
+    shifted_omega_T_arr = insp.x_shift(self.shift_reflect_fn(self.omega_T), 
                                                              self.grid, 
                                                              self.a_guess
-                                                             )).reshape((-1,))
+                                                             ).reshape((-1,))
     omega_g_arr = self.omega_guess.reshape((-1,))
     
     # final term from guess -- notation follows Chandler & Kerswell, JFM 2013
@@ -528,12 +528,12 @@ class rpoBranchContinuation(rpoSolverSpectral):
                                            self.T_guess, 
                                            perturbed_viscosity)
     self.dSomegaT_dRe = (
-      self.shift_reflect_fn(insp.x_shift(omega_T_larger_Re, 
+      insp.x_shift(self.shift_reflect_fn(omega_T_larger_Re), 
                                          self.grid, 
-                                         self.a_guess)) - 
-      self.shift_reflect_fn(insp.x_shift(self.omega_T, 
+                                         self.a_guess) - 
+      insp.x_shift(self.shift_reflect_fn(self.omega_T), 
                                          self.grid, 
-                                         self.a_guess))
+                                         self.a_guess)
     ) / delta_Re
     self.viscosity = 1. / self.Re_guess
 
