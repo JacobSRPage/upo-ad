@@ -10,5 +10,9 @@ The directory is structured as a python package and for installation users shoul
 export PYTHONPATH="${PYTHONPATH}:/path/to/dir/"
 ``` 
 
-For details on the method please refer to our paper "Recurrent flow patterns as a basis for two-dimensional turbulence: predicting statistics from structures" (accepted -- for now see https://arxiv.org/abs/2212.11886).
+For details on the method please refer to our paper 
+
+"Recurrent flow patterns as a basis for two-dimensional turbulence: predicting statistics from structures", Proceedings of the National Academy of Sciences 121 (2024)
+(https://www.pnas.org/doi/abs/10.1073/pnas.2320007121)
+
 Implementation of the method relies on the bounded while loops from the excellent equinox library (https://github.com/patrick-kidger/equinox) to enable jit compilation with a varying target time (period) $T$. 
