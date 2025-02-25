@@ -10,19 +10,20 @@ from opt_newt_jaxcfd.interact_jaxcfd import interact_jaxcfd_dtypes as glue
 from opt_newt_jaxcfd.interact_jaxcfd import time_forward_map as tfm
 from opt_newt_jaxcfd.newton import newton as nt
 
-file_front = 'guesses_Re40/guesses_with_damp_Re40.0_T4.0_Nopt400_Noptdamp100_thresh0.05_file'
-N_files = 10
-array_files = [file_front + str(j) + '_array.npy' for j in range(N_files)]
-meta_files = [file_front + str(j) + '_meta.npy' for j in range(N_files)]
+file_front = 'search_scripts/RFA_guesses0/UPO_guess_RFA0_'
+N_start = 40
+N_files = 22
+array_files = [file_front + str(j) + '.npy' for j in range(N_start,N_start+N_files)]
+meta_files = [file_front + str(j) + '_meta.npy' for j in range(N_start,N_start+N_files)]
 
 # DNS configuration should match guesses! 
-Nx = 512
-Ny = 512
+Nx = 256
+Ny = 256
 Lx = 2 * jnp.pi
 Ly = 2 * jnp.pi
 add_mean_flow = True # set to True if mean flow (in x) was subtracted when estimating shift
 
-Re = 100.
+Re = 40.
 grid = cfd.grids.Grid((Nx, Ny), domain=((0, Lx), (0, Ly)))
 
 max_velocity = 5. # estimate (not prescribed)
@@ -43,14 +44,19 @@ for ar_file, meta_file in zip(array_files, meta_files):
   shift = meta_ar[1]
 
   # catch earlier guesses without shift reflects
-  try:
-    n_shift_reflects = meta_ar[2]
-    if type(n_shift_reflects) != int:
-      n_shift_reflects = 0
-  except:
+  n_shift_reflects = meta_ar[2]
+  if n_shift_reflects % 1 != 0:
     n_shift_reflects = 0
+  print("Number of shift reflects: ", n_shift_reflects)
 
-  u_guess_gv = glue.jnp_to_gv_tuple(guess_ar, offsets, grid, bc) 
+  # initial condition may not be ordered correctly
+  # e.g. if loaded in from raw RFA search
+  if guess_ar.shape[0] == 2:
+    u_v_jnp_guess_new = jnp.moveaxis(guess_ar, 0, 2)
+  else:
+    u_v_jnp_guess_new = guess_ar 
+
+  u_guess_gv = glue.jnp_to_gv_tuple(u_v_jnp_guess_new, offsets, grid, bc) 
   guess = nt.poGuess(u_guess_gv, T, shift, n_shift_reflects=n_shift_reflects)
     
   # compute mean flow
@@ -64,8 +70,8 @@ for ar_file, meta_file in zip(array_files, meta_files):
     shift_success = guess.shift_out
     final_loss = guess.newt_resi_history[-1]
     try:
-      np.save('success_' + str(count) + '_array.npy', ar_success)
-      np.save('success_' + str(count) + '_meta.npy', np.array([T_success, 
+      np.save('success_RFA0_run2_' + str(count) + '_array.npy', ar_success)
+      np.save('success_RFA0_run2_' + str(count) + '_meta.npy', np.array([T_success, 
                                                                shift_success, 
                                                                guess.n_shift_reflects,
                                                                final_loss]))

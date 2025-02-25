@@ -9,17 +9,17 @@ from opt_newt_jaxcfd.optimisation import search_config
 # KF config
 T_guess = 5.
 Re = 40. 
-Nx = 128
-Ny = 128
+Nx = 256
+Ny = 256
 Lx = 2 * jnp.pi
 Ly = 2 * jnp.pi
 
-n_shift_reflects = 4
+n_shift_reflects = 3
 
 # optimiser config
-n_opt_steps = 20
-n_damp_steps = 10
-loss_thresh = 2. # when to save a guess for Newton
+n_opt_steps = 500
+n_damp_steps = 200
+loss_thresh = .02 # when to save a guess for Newton
 
 
 grid = cfd.grids.Grid((Nx, Ny), domain=((0, Lx), (0, Ly)))
